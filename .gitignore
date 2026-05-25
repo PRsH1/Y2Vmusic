@@ -7,3 +7,4 @@ temp
 *.log
 *.tsbuildinfo
 screenshot-*.png
+*.bat

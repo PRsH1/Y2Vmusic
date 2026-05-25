@@ -2,7 +2,7 @@
 
 YouTube 영상에서 최고 품질 오디오를 추출하는 개인용 웹앱.
 
-**Live**: https://y2vmusic.duckdns.org
+
 
 ## 주요 기능
 
@@ -66,7 +66,6 @@ http://localhost:3000 에서 접속.
 | 인스턴스 | VM.Standard.E2.1.Micro (1 OCPU, 1GB RAM) |
 | OS | Ubuntu 24.04 |
 | 리전 | South Korea North (Chuncheon) |
-| 도메인 | y2vmusic.duckdns.org (DuckDNS) |
 | SSL | Let's Encrypt (certbot, 자동 갱신) |
 | 리버스 프록시 | nginx (80/443 → localhost:3000) |
 | 프로세스 관리 | PM2 (자동 재시작 + 부팅 시 자동 실행) |
@@ -76,7 +75,7 @@ http://localhost:3000 에서 접속.
 ### 서버 업데이트
 
 ```bash
-ssh -i <key> ubuntu@152.67.198.0
+ssh -i <key> ubuntu@Your server ip
 cd ~/Y2Vmusic
 git pull
 pnpm install
