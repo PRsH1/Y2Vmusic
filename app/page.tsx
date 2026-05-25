@@ -7,6 +7,7 @@ import {
   type AudioFormatChoice,
   type QualityChoice,
 } from "@/components/format-selector";
+import { GuideModal } from "@/components/guide-modal";
 import { ProgressBar } from "@/components/progress-bar";
 import { UrlInput } from "@/components/url-input";
 import { VideoInfoCard } from "@/components/video-info";
@@ -63,6 +64,7 @@ export default function Home() {
   const [quality, setQuality] = useState<QualityChoice>("best");
   const [progress, setProgress] = useState(0);
   const [progressLabel, setProgressLabel] = useState("준비 중");
+  const [guideOpen, setGuideOpen] = useState(false);
   const progressTimerRef = useRef<number | null>(null);
 
   const isBusy = status === "loading-info" || status === "downloading";
@@ -245,11 +247,22 @@ export default function Home() {
               YouTube 오디오 추출
             </h1>
           </div>
-          <span className="rounded-md border border-[#3f4648] bg-[color:var(--surface)] px-3 py-1 text-sm text-[color:var(--muted)]">
-            {stateLabel}
-          </span>
+          <div className="flex items-center gap-2">
+            <button
+              className="rounded-md border border-[color:var(--accent)] bg-[rgba(57,217,138,0.12)] px-3 py-1 text-sm font-bold text-[color:var(--text)] transition-colors hover:bg-[rgba(57,217,138,0.18)]"
+              onClick={() => setGuideOpen(true)}
+              type="button"
+            >
+              사용법
+            </button>
+            <span className="rounded-md border border-[#3f4648] bg-[color:var(--surface)] px-3 py-1 text-sm text-[color:var(--muted)]">
+              {stateLabel}
+            </span>
+          </div>
         </div>
       </header>
+
+      <GuideModal open={guideOpen} onClose={() => setGuideOpen(false)} />
 
       <section className="grid gap-4 rounded-md border border-[color:var(--border)] bg-[color:var(--surface-raised)] p-4">
         <UrlInput
