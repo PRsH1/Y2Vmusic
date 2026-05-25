@@ -1,0 +1,8 @@
+node_modules
+.next
+out
+temp
+.env*.local
+*.log
+*.tsbuildinfo
+screenshot-*.png
