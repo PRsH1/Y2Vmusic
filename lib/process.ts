@@ -1,16 +1,23 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 
-const EXTRA_PATH_DIRS = [
-  path.join(
-    process.env.LOCALAPPDATA ?? "",
-    "Microsoft/WinGet/Packages/yt-dlp.yt-dlp_Microsoft.Winget.Source_8wekyb3d8bbwe",
-  ),
-  path.join(
-    process.env.LOCALAPPDATA ?? "",
-    "Microsoft/WinGet/Packages/Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-8.1.1-full_build/bin",
-  ),
-].filter(Boolean);
+const isWindows = process.platform === "win32";
+
+const EXTRA_PATH_DIRS = isWindows
+  ? [
+      path.join(
+        process.env.LOCALAPPDATA ?? "",
+        "Microsoft/WinGet/Packages/yt-dlp.yt-dlp_Microsoft.Winget.Source_8wekyb3d8bbwe",
+      ),
+      path.join(
+        process.env.LOCALAPPDATA ?? "",
+        "Microsoft/WinGet/Packages/Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-8.1.1-full_build/bin",
+      ),
+    ]
+  : [
+      path.join(process.env.HOME ?? "/home/ubuntu", ".deno/bin"),
+    ];
+
 
 function getEnhancedPath(): string {
   const existing = process.env.PATH ?? "";
