@@ -40,6 +40,11 @@ app/
     info/route.ts         # POST /api/info — 영상 정보 조회
     download/route.ts     # POST /api/download — 오디오 추출 및 다운로드
 components/               # UI 컴포넌트 (url-input, video-info, format-selector, download-button, progress-bar)
+  guide-modal.tsx           # 사용법 모달 (탭 전환, 반응형, ESC/오버레이 닫기)
+  guide/
+    pc-guide.tsx            # PC 사용법 (5단계)
+    mobile-guide.tsx        # 모바일 사용법 (6단계)
+    faq.tsx                 # FAQ 아코디언
 lib/
   ytdlp.ts               # yt-dlp CLI 래퍼 (getVideoInfo, downloadAudio)
   ffmpeg.ts               # ffmpeg CLI 래퍼 (convert, 메타데이터/앨범아트 삽입)
