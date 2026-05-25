@@ -2,6 +2,8 @@
 
 YouTube 영상에서 최고 품질 오디오를 추출하는 개인용 웹앱.
 
+**Live**: https://y2vmusic.duckdns.org
+
 ## 주요 기능
 
 - YouTube URL 입력 → 영상 정보 미리보기 (제목, 채널, 썸네일, 길이)
@@ -11,23 +13,30 @@ YouTube 영상에서 최고 품질 오디오를 추출하는 개인용 웹앱.
 - ID3 태그 자동 삽입 (제목, 아티스트, 앨범아트)
 - 다운로드 진행률 표시
 
+## 기술 스택
+
+- Next.js 15 (App Router) + TypeScript
+- Tailwind CSS 4
+- yt-dlp (오디오 스트림 추출)
+- ffmpeg (포맷 변환 + 메타데이터 삽입)
+
 ## 선행 요구사항
 
-| 도구 | 설치 방법 |
-|------|----------|
-| Node.js 24+ | [nodejs.org](https://nodejs.org) |
-| pnpm | `corepack enable` |
-| yt-dlp | `winget install yt-dlp.yt-dlp` |
-| ffmpeg | `winget install Gyan.FFmpeg` |
+| 도구 | 설치 방법 (Windows) | 설치 방법 (Linux) |
+|------|---------------------|-------------------|
+| Node.js 22+ | [nodejs.org](https://nodejs.org) | `curl -fsSL https://deb.nodesource.com/setup_22.x \| sudo bash - && sudo apt install nodejs` |
+| pnpm | `corepack enable` | `npm install -g pnpm` |
+| yt-dlp | `winget install yt-dlp.yt-dlp` | `sudo pip3 install yt-dlp` |
+| ffmpeg | `winget install Gyan.FFmpeg` | `sudo apt install ffmpeg` |
 
-## 설치 및 실행
+## 로컬 실행
 
 ```bash
 # 의존성 설치
-corepack pnpm install
+pnpm install
 
-# 개발 서버 실행
-corepack pnpm dev
+# 개발 서버
+pnpm dev
 ```
 
 http://localhost:3000 에서 접속.
@@ -37,13 +46,6 @@ http://localhost:3000 에서 접속.
 1. YouTube URL을 입력하고 검색 버튼 클릭
 2. 영상 정보를 확인한 뒤 원하는 포맷과 품질 선택
 3. 다운로드 버튼 클릭 → 파일 저장
-
-## 기술 스택
-
-- Next.js 15 (App Router) + TypeScript
-- Tailwind CSS 4
-- yt-dlp (오디오 스트림 추출)
-- ffmpeg (포맷 변환 + 메타데이터 삽입)
 
 ## 포맷별 품질
 
@@ -55,6 +57,42 @@ http://localhost:3000 에서 접속.
 | FLAC | 원본 | - | - | 무손실 컨테이너 + 앨범아트 |
 
 > YouTube 자체가 업로더의 원본을 재인코딩하므로, 추출 가능한 최대 품질은 YouTube가 제공하는 스트림의 상한(일반적으로 opus 160kbps)입니다.
+
+## 배포 환경
+
+| 항목 | 내용 |
+|------|------|
+| 호스팅 | Oracle Cloud Free Tier |
+| 인스턴스 | VM.Standard.E2.1.Micro (1 OCPU, 1GB RAM) |
+| OS | Ubuntu 24.04 |
+| 리전 | South Korea North (Chuncheon) |
+| 도메인 | y2vmusic.duckdns.org (DuckDNS) |
+| SSL | Let's Encrypt (certbot, 자동 갱신) |
+| 리버스 프록시 | nginx (80/443 → localhost:3000) |
+| 프로세스 관리 | PM2 (자동 재시작 + 부팅 시 자동 실행) |
+| JS 런타임 | deno (yt-dlp YouTube JS 챌린지 해독용) |
+| YouTube 인증 | 브라우저 쿠키 (`cookies.txt`) — 클라우드 IP 봇 차단 우회 |
+
+### 서버 업데이트
+
+```bash
+ssh -i <key> ubuntu@152.67.198.0
+cd ~/Y2Vmusic
+git pull
+pnpm install
+pnpm build
+pm2 restart y2vmusic
+```
+
+### YouTube 쿠키 갱신
+
+YouTube가 클라우드 서버 IP를 봇으로 차단하므로 브라우저 쿠키가 필요합니다. 쿠키 만료 시:
+
+1. Chrome 확장프로그램 "Get cookies.txt LOCALLY"로 youtube.com 쿠키 내보내기
+2. 서버에 업로드:
+```bash
+scp -i <key> cookies.txt ubuntu@152.67.198.0:~/cookies.txt
+```
 
 ## 라이선스
 
