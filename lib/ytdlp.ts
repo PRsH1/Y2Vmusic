@@ -214,7 +214,7 @@ export async function downloadAudio(
     "yt-dlp",
     [
       "-f",
-      "bestaudio",
+      "bestaudio/bestaudio*/best",
       "--no-playlist",
       "--no-progress",
       "-o",
