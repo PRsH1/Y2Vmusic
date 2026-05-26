@@ -17,6 +17,8 @@ YouTube 영상에서 최고 품질 오디오를 추출하는 개인용 웹앱.
 - YouTube Music 차트 탐색 (한국 Top 100, 글로벌 Top 100, 일본 Top 100, 장르별 플레이리스트)
 - 곡 검색 (YouTube 검색 연동)
 - 미리듣기 (YouTube 임베드 플레이어)
+- YouTube 429 rate limit 자동 재시도 (exponential backoff)
+- 영상 정보 서버 캐시 (동일 영상 반복 조회 시 즉시 응답)
 
 ## 기술 스택
 
@@ -69,6 +71,11 @@ http://localhost:3000 에서 접속.
 | FLAC | 원본 | - | - | 무손실 컨테이너 + 앨범아트 |
 
 > YouTube 자체가 업로더의 원본을 재인코딩하므로, 추출 가능한 최대 품질은 YouTube가 제공하는 스트림의 상한(일반적으로 opus 160kbps)입니다.
+
+## 제한사항
+
+- YouTube Music 전용 콘텐츠(`music.youtube.com`에서만 재생 가능한 영상)는 다운로드할 수 없습니다.
+- 일반 YouTube에서도 재생 가능한 영상만 지원합니다.
 
 ## 배포 환경
 

@@ -55,10 +55,11 @@ components/               # UI 컴포넌트 (url-input, video-info, format-selec
     track-list.tsx          # 트랙 리스트 + 더 보기 페이지네이션
     track-item.tsx          # 트랙 아이템 (모바일: 아이콘 버튼, 데스크탑: 텍스트 버튼)
 lib/
-  ytdlp.ts               # yt-dlp CLI 래퍼 (getVideoInfo, downloadAudio, searchYouTube, fetchPlaylistFromYtDlp)
+  ytdlp.ts               # yt-dlp CLI 래퍼 (getVideoInfo, downloadAudio, searchYouTube, fetchPlaylistFromYtDlp) + 429 재시도
   youtube-api.ts          # YouTube Data API v3 래퍼 (fetchPlaylistFromApi)
   playlists.ts            # 플레이리스트 ID 정의 + 메타데이터
-  chart-cache.ts          # 서버 캐시 (Map 기반, TTL 2시간)
+  chart-cache.ts          # 서버 캐시 — 차트 데이터 (Map 기반, TTL 2시간)
+  info-cache.ts           # 서버 캐시 — 영상 info (Map 기반, TTL 10분)
   ffmpeg.ts               # ffmpeg CLI 래퍼 (convert, 메타데이터/앨범아트 삽입)
   process.ts              # child_process.spawn 래퍼 (PATH 보강 포함)
   validate.ts             # YouTube URL 유효성 검사
@@ -74,7 +75,9 @@ lib/
 - **임시 파일**: UUID 기반 생성, 스트림 완료/에러 시 try/finally로 정리
 - **ID3 태그**: ffmpeg로 MP3/M4A/FLAC 변환 시 제목, 아티스트, 앨범아트 자동 삽입
 - **하이브리드 차트**: PL 접두사 차트는 YouTube Data API v3, RDCLAK5uy_ 장르 플레이리스트는 yt-dlp로 분기 처리
-- **서버 캐시**: 차트 데이터는 메모리 Map에 2시간 TTL로 캐시 (DB 미사용)
+- **서버 캐시**: 차트 데이터는 메모리 Map에 2시간 TTL로 캐시, 영상 info는 10분 TTL로 캐시 (DB 미사용)
+- **429 재시도**: yt-dlp의 모든 호출에 exponential backoff 재시도 적용 (최대 2회, 3초→9초 간격, HTTP 429만 대상)
+- **다운로드 메타데이터 전달**: 클라이언트가 info 조회 시 받은 title/channel/thumbnail을 다운로드 요청에 포함하여 서버 측 중복 info 호출 제거
 - **미리듣기**: YouTube IFrame 임베드, 자동 재생 없음
 - **테마**: CSS 변수 기반 라이트/다크 전환, `data-theme` 속성 + localStorage 저장, FOUC 방지 인라인 스크립트
 - **반응형 트랙 버튼**: 모바일(< 640px) 아이콘 버튼, 데스크탑(≥ 640px) 텍스트 버튼
@@ -148,3 +151,8 @@ pm2 restart y2vmusic
 - API 에러 응답: `{ "error": "메시지" }` 형식
 - 포맷 옵션: MP3 (320/192/128), M4A (256/192/128), OPUS (원본), FLAC
 - 플레이리스트 ID 관리: `lib/playlists.ts`에 집중 (ID 변경 시 이 파일만 수정)
+
+## Known Limitations
+
+- **YouTube Music 전용 콘텐츠 미지원**: `music.youtube.com`에서만 재생 가능한 영상(YouTube Music Premium 전용)은 yt-dlp로 추출 불가. YouTube Music Premium 계정 쿠키 + `web_music` 클라이언트가 필요하며, 현재 지원하지 않음.
+- **서버 OOM**: Oracle Cloud 1GB RAM 인스턴스에서 `pnpm build` 시 TypeScript 타입 체크 단계에서 간헐적 OOM 발생. 빌드 실패 시 Oracle Cloud Console에서 서버 리부팅 후 재시도.
