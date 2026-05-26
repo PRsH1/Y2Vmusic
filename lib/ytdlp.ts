@@ -1,4 +1,4 @@
-import { runCli } from "@/lib/process";
+import { CliError, runCli } from "@/lib/process";
 import type { ChartTrack } from "@/lib/youtube-api";
 
 export type AudioStreamInfo = {
@@ -43,6 +43,35 @@ type RawYtDlpTrack = {
   thumbnail?: string;
   duration?: number;
 };
+
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  maxRetries: number = 2,
+  baseDelayMs: number = 3000,
+): Promise<T> {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      const isRetryable =
+        error instanceof CliError &&
+        error.stderr?.includes("HTTP Error 429");
+
+      if (!isRetryable || attempt === maxRetries) {
+        throw error;
+      }
+
+      await new Promise((resolve) => {
+        setTimeout(resolve, baseDelayMs * Math.pow(3, attempt));
+      });
+    }
+  }
+
+  throw lastError;
+}
 
 function normalizeCodec(codec: string | undefined): string {
   if (!codec || codec === "none") {
@@ -152,12 +181,14 @@ function mapTracks(rawTracks: RawYtDlpTrack[]): ChartTrack[] {
 }
 
 export async function getVideoInfo(url: string): Promise<VideoInfo> {
-  const { stdout } = await runCli(
-    "yt-dlp",
-    ["--dump-json", "--no-playlist", url],
-    {
-      maxStdoutBytes: 64 * 1024 * 1024,
-    },
+  const { stdout } = await withRetry(() =>
+    runCli(
+      "yt-dlp",
+      ["--dump-json", "--no-playlist", url],
+      {
+        maxStdoutBytes: 64 * 1024 * 1024,
+      },
+    ),
   );
 
   const raw = JSON.parse(stdout) as RawYtDlpInfo;
@@ -172,12 +203,14 @@ export async function getVideoInfo(url: string): Promise<VideoInfo> {
 }
 
 export async function searchYouTube(query: string): Promise<ChartTrack[]> {
-  const { stdout } = await runCli(
-    "yt-dlp",
-    ["ytsearch20:" + query, "--dump-json", "--flat-playlist", "--no-download"],
-    {
-      maxStdoutBytes: 8 * 1024 * 1024,
-    },
+  const { stdout } = await withRetry(() =>
+    runCli(
+      "yt-dlp",
+      ["ytsearch20:" + query, "--dump-json", "--flat-playlist", "--no-download"],
+      {
+        maxStdoutBytes: 8 * 1024 * 1024,
+      },
+    ),
   );
 
   return mapTracks(parseJsonLines(stdout));
@@ -190,17 +223,19 @@ export async function fetchPlaylistFromYtDlp(
     throw new Error("지원하지 않는 YouTube Music 플레이리스트입니다.");
   }
 
-  const { stdout } = await runCli(
-    "yt-dlp",
-    [
-      `https://www.youtube.com/playlist?list=${playlistId}`,
-      "--dump-json",
-      "--flat-playlist",
-      "--no-download",
-    ],
-    {
-      maxStdoutBytes: 16 * 1024 * 1024,
-    },
+  const { stdout } = await withRetry(() =>
+    runCli(
+      "yt-dlp",
+      [
+        `https://www.youtube.com/playlist?list=${playlistId}`,
+        "--dump-json",
+        "--flat-playlist",
+        "--no-download",
+      ],
+      {
+        maxStdoutBytes: 16 * 1024 * 1024,
+      },
+    ),
   );
 
   return mapTracks(parseJsonLines(stdout));
@@ -210,20 +245,22 @@ export async function downloadAudio(
   url: string,
   outputPath: string,
 ): Promise<void> {
-  await runCli(
-    "yt-dlp",
-    [
-      "-f",
-      "bestaudio/bestaudio*/best",
-      "--no-playlist",
-      "--no-progress",
-      "-o",
-      outputPath,
-      url,
-    ],
-    {
-      maxStdoutBytes: 8 * 1024 * 1024,
-      maxStderrBytes: 8 * 1024 * 1024,
-    },
+  await withRetry(() =>
+    runCli(
+      "yt-dlp",
+      [
+        "-f",
+        "bestaudio/bestaudio*/best",
+        "--no-playlist",
+        "--no-progress",
+        "-o",
+        outputPath,
+        url,
+      ],
+      {
+        maxStdoutBytes: 8 * 1024 * 1024,
+        maxStderrBytes: 8 * 1024 * 1024,
+      },
+    ),
   );
 }

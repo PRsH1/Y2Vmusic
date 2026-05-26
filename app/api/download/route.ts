@@ -2,6 +2,7 @@ import { createReadStream, statSync } from "node:fs";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { convert, type AudioFormat } from "@/lib/ffmpeg";
+import { getCachedInfo, setCachedInfo } from "@/lib/info-cache";
 import { getCliErrorMessage } from "@/lib/process";
 import {
   cleanupMany,
@@ -22,6 +23,15 @@ type DownloadRequest = {
   url?: unknown;
   format?: unknown;
   quality?: unknown;
+  title?: unknown;
+  channel?: unknown;
+  thumbnail?: unknown;
+};
+
+type DownloadInfo = {
+  title: string;
+  channel: string;
+  thumbnail: string | null;
 };
 
 const AUDIO_FORMATS = new Set<AudioFormat>(["mp3", "m4a", "opus", "flac"]);
@@ -112,6 +122,46 @@ function getContentType(ext: string): string {
   return "application/octet-stream";
 }
 
+function extractVideoId(url: string): string | null {
+  const match = url.match(/(?:v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+  return match?.[1] ?? null;
+}
+
+async function getDownloadInfo(
+  url: string,
+  provided: DownloadInfo | null,
+): Promise<DownloadInfo> {
+  if (provided) {
+    return provided;
+  }
+
+  const videoId = extractVideoId(url);
+
+  if (videoId) {
+    const cached = getCachedInfo(videoId);
+
+    if (cached) {
+      return {
+        title: cached.title,
+        channel: cached.channel,
+        thumbnail: cached.thumbnail,
+      };
+    }
+  }
+
+  const info = await getVideoInfo(url);
+
+  if (videoId) {
+    setCachedInfo(videoId, info);
+  }
+
+  return {
+    title: info.title,
+    channel: info.channel,
+    thumbnail: info.thumbnail,
+  };
+}
+
 export async function POST(request: Request) {
   let inputPath: string | undefined;
   let outputPath: string | undefined;
@@ -128,6 +178,10 @@ export async function POST(request: Request) {
     const url = typeof body.url === "string" ? body.url.trim() : "";
     const format = isAudioFormat(body.format) ? body.format : null;
     const quality = isQuality(body.quality) ? body.quality : "best";
+    const title = typeof body.title === "string" ? body.title.trim() : "";
+    const channel = typeof body.channel === "string" ? body.channel.trim() : "";
+    const thumbnail =
+      typeof body.thumbnail === "string" ? body.thumbnail.trim() : "";
 
     if (!isValidYouTubeUrl(url)) {
       return jsonError("지원하는 YouTube 영상 URL을 입력하세요.", 400);
@@ -137,7 +191,16 @@ export async function POST(request: Request) {
       return jsonError("지원하는 오디오 포맷을 선택하세요.", 400);
     }
 
-    const info = await getVideoInfo(url);
+    const info = await getDownloadInfo(
+      url,
+      title && channel
+        ? {
+            title,
+            channel,
+            thumbnail: thumbnail || null,
+          }
+        : null,
+    );
     const templatePath = createTempPath("%(ext)s");
 
     await downloadAudio(url, templatePath);

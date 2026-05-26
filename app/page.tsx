@@ -237,6 +237,9 @@ export default function Home() {
           url,
           format,
           quality,
+          title: info.title,
+          channel: info.channel,
+          thumbnail: info.thumbnail,
         }),
       });
 
