@@ -26,7 +26,7 @@ export function UrlInput({
           YouTube URL
         </span>
         <input
-          className="h-12 w-full rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] px-4 text-base text-[color:var(--text)] placeholder:text-[#77716a] shadow-sm transition-colors hover:border-[#475052] disabled:cursor-not-allowed disabled:opacity-60"
+          className="h-12 w-full rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] px-4 text-base text-[color:var(--text)] placeholder:text-[color:var(--placeholder)] shadow-sm transition-colors hover:border-[color:var(--control-hover)] disabled:cursor-not-allowed disabled:opacity-60"
           disabled={disabled}
           inputMode="url"
           onChange={(event) => onChange(event.target.value)}
@@ -37,7 +37,7 @@ export function UrlInput({
         />
       </label>
       <button
-        className="mt-auto h-12 rounded-md bg-[color:var(--accent)] px-5 text-sm font-bold text-[#07140d] transition-colors hover:bg-[color:var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-55"
+        className="mt-auto h-12 rounded-md bg-[color:var(--accent)] px-5 text-sm font-bold text-[color:var(--accent-contrast)] transition-colors hover:bg-[color:var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-55"
         disabled={disabled || value.trim().length === 0}
         type="submit"
       >

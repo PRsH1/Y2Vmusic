@@ -182,11 +182,11 @@ export function ExploreSection({
 
       {loading ? (
         <div className="flex items-center gap-3 py-8 text-sm text-[color:var(--muted)]">
-          <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#4a5153] border-t-[color:var(--accent)]" />
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-[color:var(--spinner-border)] border-t-[color:var(--accent)]" />
           {mode === "search" ? "검색 중" : "차트 불러오는 중"}
         </div>
       ) : error ? (
-        <div className="rounded-md border border-[rgba(255,107,107,0.45)] bg-[rgba(255,107,107,0.1)] px-4 py-3 text-sm text-[#ffb1b1]">
+        <div className="rounded-md border border-[color:var(--danger-border)] bg-[color:var(--danger-soft)] px-4 py-3 text-sm text-[color:var(--danger-text)]">
           {error}
         </div>
       ) : tracks.length === 0 ? (

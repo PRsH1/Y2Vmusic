@@ -16,8 +16,18 @@ export const PLAYLISTS: PlaylistDef[] = [
     source: "youtube-api",
   },
   {
+    id: "PL4fGSI1pDJn4-UIb6RKHdxam-oAUULIGB",
+    label: "일본 Top 100",
+    source: "youtube-api",
+  },
+  {
     id: "RDCLAK5uy_l7wbVbkC-dG5fyEQQsBfjm_z3dLAhYyvo",
     label: "K-Pop",
+    source: "yt-dlp",
+  },
+  {
+    id: "RDCLAK5uy_nbK9qSkqYZvtMXH1fLCMmC1yn8HEm0W90",
+    label: "J-Pop",
     source: "yt-dlp",
   },
   {

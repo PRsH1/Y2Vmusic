@@ -25,7 +25,7 @@ export function SearchBar({ onSearch, disabled }: SearchBarProps) {
   return (
     <form className="grid gap-3 md:grid-cols-[1fr_auto]" onSubmit={handleSubmit}>
       <input
-        className="h-12 rounded-md border border-[#3f4648] bg-[color:var(--surface)] px-4 text-sm text-[color:var(--text)] placeholder:text-[color:var(--muted)] disabled:cursor-not-allowed disabled:opacity-60"
+        className="h-12 rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] px-4 text-sm text-[color:var(--text)] placeholder:text-[color:var(--muted)] disabled:cursor-not-allowed disabled:opacity-60"
         disabled={disabled}
         onChange={(event) => setQuery(event.target.value)}
         placeholder="곡 또는 아티스트 검색"
@@ -33,7 +33,7 @@ export function SearchBar({ onSearch, disabled }: SearchBarProps) {
         value={query}
       />
       <button
-        className="h-12 rounded-md bg-[color:var(--accent)] px-5 text-sm font-bold text-[#07140d] transition-colors hover:bg-[color:var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-55 md:min-w-28"
+        className="h-12 rounded-md bg-[color:var(--accent)] px-5 text-sm font-bold text-[color:var(--accent-contrast)] transition-colors hover:bg-[color:var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-55 md:min-w-28"
         disabled={disabled || !query.trim()}
         type="submit"
       >

@@ -21,7 +21,7 @@ export function PreviewPlayer({
         </h2>
         <button
           aria-label="미리듣기 닫기"
-          className="flex h-7 w-7 items-center justify-center rounded-md border border-[color:var(--border)] bg-[color:var(--surface-raised)] text-xs font-bold text-[color:var(--muted)] transition-colors hover:border-[#586164] hover:text-[color:var(--text)]"
+          className="flex h-7 w-7 items-center justify-center rounded-md border border-[color:var(--border)] bg-[color:var(--surface-raised)] text-xs font-bold text-[color:var(--muted)] transition-colors hover:border-[color:var(--control-hover)] hover:text-[color:var(--text)]"
           onClick={onClose}
           type="button"
         >
@@ -29,7 +29,7 @@ export function PreviewPlayer({
         </button>
       </div>
       <div className="mx-auto w-full max-w-[480px]">
-        <div className="relative aspect-video w-full overflow-hidden rounded-md border border-[#2a2f30] bg-[#0c0d0e]">
+        <div className="relative aspect-video w-full overflow-hidden rounded-md border border-[color:var(--media-border)] bg-[color:var(--media-bg)]">
           <iframe
             allow="encrypted-media"
             allowFullScreen

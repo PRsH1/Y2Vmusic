@@ -72,7 +72,7 @@ export function GuideModal({ open, onClose }: GuideModalProps) {
           </div>
           <button
             aria-label="사용법 닫기"
-            className="flex h-9 w-9 items-center justify-center rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] text-sm font-bold text-[color:var(--muted)] transition-colors hover:border-[#586164] hover:text-[color:var(--text)]"
+            className="flex h-9 w-9 items-center justify-center rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] text-sm font-bold text-[color:var(--muted)] transition-colors hover:border-[color:var(--control-hover)] hover:text-[color:var(--text)]"
             onClick={onClose}
             type="button"
           >
@@ -96,8 +96,8 @@ export function GuideModal({ open, onClose }: GuideModalProps) {
                   className={[
                     "rounded-md border px-3 py-2 text-sm font-bold transition-colors",
                     selected
-                      ? "border-[color:var(--accent)] bg-[rgba(57,217,138,0.12)] text-[color:var(--text)]"
-                      : "border-[#3f4648] bg-[color:var(--surface)] text-[color:var(--muted)] hover:border-[#586164] hover:text-[color:var(--text)]",
+                      ? "border-[color:var(--accent)] bg-[color:var(--accent-soft)] text-[color:var(--text)]"
+                      : "border-[color:var(--border)] bg-[color:var(--surface)] text-[color:var(--muted)] hover:border-[color:var(--control-hover)] hover:text-[color:var(--text)]",
                   ].join(" ")}
                   id={`guide-tab-${tab.id}`}
                   key={tab.id}

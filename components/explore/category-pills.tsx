@@ -20,10 +20,10 @@ export function CategoryPills({
           <button
             aria-pressed={selected}
             className={[
-              "flex-shrink-0 cursor-pointer whitespace-nowrap rounded-md border px-3 py-1.5 text-sm transition-colors hover:border-[#586164] hover:text-[color:var(--text)]",
+              "flex-shrink-0 cursor-pointer whitespace-nowrap rounded-md border px-3 py-1.5 text-sm transition-colors hover:border-[color:var(--control-hover)] hover:text-[color:var(--text)]",
               selected
-                ? "border-[color:var(--accent)] bg-[rgba(57,217,138,0.12)] font-bold text-[color:var(--text)]"
-                : "border-[#3f4648] bg-[color:var(--surface)] text-[color:var(--muted)]",
+                ? "border-[color:var(--accent)] bg-[color:var(--accent-soft)] font-bold text-[color:var(--text)]"
+                : "border-[color:var(--border)] bg-[color:var(--surface)] text-[color:var(--muted)]",
             ].join(" ")}
             key={item.id}
             onClick={() => onSelect(item.id)}

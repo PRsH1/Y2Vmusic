@@ -16,7 +16,7 @@ export function ProgressBar({ value, label }: ProgressBarProps) {
         aria-valuemax={100}
         aria-valuemin={0}
         aria-valuenow={normalized}
-        className="h-3 overflow-hidden rounded-md border border-[#3f4648] bg-[#0d0f0f]"
+        className="h-3 overflow-hidden rounded-md border border-[color:var(--border)] bg-[color:var(--progress-bg)]"
         role="progressbar"
       >
         <div

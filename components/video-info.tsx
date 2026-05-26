@@ -34,7 +34,7 @@ function formatSource(info: VideoInfo): string {
 export function VideoInfoCard({ info }: VideoInfoProps) {
   return (
     <section className="grid gap-4 rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] p-4 md:grid-cols-[180px_1fr]">
-      <div className="aspect-video overflow-hidden rounded-md border border-[#2a2f30] bg-[#0c0d0e]">
+      <div className="aspect-video overflow-hidden rounded-md border border-[color:var(--media-border)] bg-[color:var(--media-bg)]">
         {info.thumbnail ? (
           <img
             alt=""
@@ -56,10 +56,10 @@ export function VideoInfoCard({ info }: VideoInfoProps) {
           <p className="text-sm text-[color:var(--muted)]">{info.channel}</p>
         </div>
         <div className="flex flex-wrap gap-2 text-sm">
-          <span className="rounded-md border border-[#3f4648] bg-[color:var(--surface-raised)] px-3 py-1 text-[color:var(--text)]">
+          <span className="rounded-md border border-[color:var(--border)] bg-[color:var(--surface-raised)] px-3 py-1 text-[color:var(--text)]">
             {formatDuration(info.duration)}
           </span>
-          <span className="rounded-md border border-[#3f4648] bg-[color:var(--surface-raised)] px-3 py-1 text-[color:var(--text)]">
+          <span className="rounded-md border border-[color:var(--border)] bg-[color:var(--surface-raised)] px-3 py-1 text-[color:var(--text)]">
             {formatSource(info)}
           </span>
         </div>

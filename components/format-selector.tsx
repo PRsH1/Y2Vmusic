@@ -54,8 +54,8 @@ export function FormatSelector({
                 className={[
                   "grid min-h-20 cursor-pointer gap-1 rounded-md border p-3 transition-colors",
                   selected
-                    ? "border-[color:var(--accent)] bg-[rgba(57,217,138,0.12)]"
-                    : "border-[#3f4648] bg-[color:var(--surface-raised)] hover:border-[#586164]",
+                    ? "border-[color:var(--accent)] bg-[color:var(--accent-soft)]"
+                    : "border-[color:var(--border)] bg-[color:var(--surface-raised)] hover:border-[color:var(--control-hover)]",
                   disabled ? "cursor-not-allowed opacity-60" : "",
                 ].join(" ")}
                 key={option.value}
@@ -99,11 +99,11 @@ export function FormatSelector({
                 className={[
                   "grid min-h-16 gap-1 rounded-md border p-3 transition-colors",
                   selected
-                    ? "border-[color:var(--warning)] bg-[rgba(240,184,79,0.12)]"
-                    : "border-[#3f4648] bg-[color:var(--surface-raised)]",
+                    ? "border-[color:var(--warning)] bg-[color:var(--warning-soft)]"
+                    : "border-[color:var(--border)] bg-[color:var(--surface-raised)]",
                   qualityDisabled
                     ? "cursor-not-allowed opacity-50"
-                    : "cursor-pointer hover:border-[#68625a]",
+                    : "cursor-pointer hover:border-[color:var(--control-hover)]",
                 ].join(" ")}
                 key={option.value}
               >
