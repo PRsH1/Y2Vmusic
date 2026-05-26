@@ -94,6 +94,7 @@ lib/
 - **nginx**: 리버스 프록시 (80/443 → localhost:3000)
 - **certbot**: Let's Encrypt SSL 자동 갱신
 - **PM2**: Next.js 프로세스 관리 (자동 재시작, 시스템 부팅 시 자동 실행)
+- **Swap**: 2GB swap 파일 (`/swapfile`, fstab 등록) — 빌드 시 OOM 방지
 - **deno**: yt-dlp의 YouTube JS 챌린지 해독용 런타임 (~/.deno/bin)
 - **Cloudflare WARP**: yt-dlp 프록시 (socks5://127.0.0.1:40000) — 클라우드 IP 봇 차단 우회
 - **yt-dlp config**: `~/.config/yt-dlp/config` — `--remote-components ejs:github`, `--proxy socks5://127.0.0.1:40000`
@@ -155,4 +156,4 @@ pm2 restart y2vmusic
 ## Known Limitations
 
 - **YouTube Music 전용 콘텐츠 미지원**: `music.youtube.com`에서만 재생 가능한 영상(YouTube Music Premium 전용)은 yt-dlp로 추출 불가. YouTube Music Premium 계정 쿠키 + `web_music` 클라이언트가 필요하며, 현재 지원하지 않음.
-- **서버 OOM**: Oracle Cloud 1GB RAM 인스턴스에서 `pnpm build` 시 TypeScript 타입 체크 단계에서 간헐적 OOM 발생. 빌드 실패 시 Oracle Cloud Console에서 서버 리부팅 후 재시도.
+- **서버 OOM (해결됨)**: Oracle Cloud 1GB RAM 인스턴스에서 `pnpm build` 시 OOM이 발생했으나, 2GB swap 파일 추가로 해결. 빌드가 느려질 수는 있으나 서버가 죽지는 않음.
