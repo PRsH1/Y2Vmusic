@@ -13,12 +13,16 @@ YouTube 영상에서 최고 품질 오디오를 추출하는 개인용 웹앱.
 - ID3 태그 자동 삽입 (제목, 아티스트, 앨범아트)
 - 다운로드 진행률 표시
 - 인앱 사용법 가이드 (PC/모바일/FAQ 탭 모달)
+- YouTube Music 차트 탐색 (한국 Top 100, 글로벌 Top 100, 장르별 플레이리스트)
+- 곡 검색 (YouTube 검색 연동)
+- 미리듣기 (YouTube 임베드 플레이어)
 
 ## 기술 스택
 
 - Next.js 15 (App Router) + TypeScript
 - Tailwind CSS 4
-- yt-dlp (오디오 스트림 추출)
+- YouTube Data API v3 (차트 조회)
+- yt-dlp (오디오 스트림 추출 + 검색 + 장르 플레이리스트)
 - ffmpeg (포맷 변환 + 메타데이터 삽입)
 
 ## 선행 요구사항
@@ -44,9 +48,15 @@ http://localhost:3000 에서 접속.
 
 ## 사용법
 
+**방법 A — URL 직접 입력**
 1. YouTube URL을 입력하고 검색 버튼 클릭
 2. 영상 정보를 확인한 뒤 원하는 포맷과 품질 선택
 3. 다운로드 버튼 클릭 → 파일 저장
+
+**방법 B — 차트/검색에서 선택**
+1. 탐색 섹션에서 차트(한국 Top 100, K-Pop, 힙합 등) 또는 검색으로 곡 탐색
+2. 썸네일 클릭으로 미리듣기, ↓ 버튼으로 선택
+3. 포맷과 품질 선택 후 다운로드
 
 ## 포맷별 품질
 
@@ -72,6 +82,7 @@ http://localhost:3000 에서 접속.
 | 프로세스 관리 | PM2 (자동 재시작 + 부팅 시 자동 실행) |
 | JS 런타임 | deno (yt-dlp YouTube JS 챌린지 해독용) |
 | YouTube 인증 | 브라우저 쿠키 (`cookies.txt`) — 클라우드 IP 봇 차단 우회 |
+| 차트 API | YouTube Data API v3 (`YOUTUBE_API_KEY` 환경 변수) |
 
 ### 서버 업데이트
 

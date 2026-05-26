@@ -39,14 +39,26 @@ app/
   api/
     info/route.ts         # POST /api/info — 영상 정보 조회
     download/route.ts     # POST /api/download — 오디오 추출 및 다운로드
+    charts/route.ts       # GET /api/charts — 차트/플레이리스트 조회 (YouTube Data API v3 + yt-dlp)
+    search/route.ts       # POST /api/search — YouTube 검색 (yt-dlp ytsearch)
 components/               # UI 컴포넌트 (url-input, video-info, format-selector, download-button, progress-bar)
   guide-modal.tsx           # 사용법 모달 (탭 전환, 반응형, ESC/오버레이 닫기)
+  preview-player.tsx        # YouTube IFrame 미리듣기 플레이어 (별도 섹션)
   guide/
     pc-guide.tsx            # PC 사용법 (5단계)
     mobile-guide.tsx        # 모바일 사용법 (6단계)
     faq.tsx                 # FAQ 아코디언
+  explore/
+    explore-section.tsx     # 탐색 섹션 컨테이너 (검색바 + 카테고리 + 트랙 리스트)
+    search-bar.tsx          # 검색 입력 컴포넌트
+    category-pills.tsx      # 카테고리 필 버튼 (가로 스크롤)
+    track-list.tsx          # 트랙 리스트 + 더 보기 페이지네이션
+    track-item.tsx          # 트랙 아이템 (미리듣기/선택 분리)
 lib/
-  ytdlp.ts               # yt-dlp CLI 래퍼 (getVideoInfo, downloadAudio)
+  ytdlp.ts               # yt-dlp CLI 래퍼 (getVideoInfo, downloadAudio, searchYouTube, fetchPlaylistFromYtDlp)
+  youtube-api.ts          # YouTube Data API v3 래퍼 (fetchPlaylistFromApi)
+  playlists.ts            # 플레이리스트 ID 정의 + 메타데이터
+  chart-cache.ts          # 서버 캐시 (Map 기반, TTL 2시간)
   ffmpeg.ts               # ffmpeg CLI 래퍼 (convert, 메타데이터/앨범아트 삽입)
   process.ts              # child_process.spawn 래퍼 (PATH 보강 포함)
   validate.ts             # YouTube URL 유효성 검사
@@ -61,6 +73,9 @@ lib/
 - **DB 없음**: 개인용이므로 다운로드 이력 미저장
 - **임시 파일**: UUID 기반 생성, 스트림 완료/에러 시 try/finally로 정리
 - **ID3 태그**: ffmpeg로 MP3/M4A/FLAC 변환 시 제목, 아티스트, 앨범아트 자동 삽입
+- **하이브리드 차트**: PL 접두사 차트는 YouTube Data API v3, RDCLAK5uy_ 장르 플레이리스트는 yt-dlp로 분기 처리
+- **서버 캐시**: 차트 데이터는 메모리 Map에 2시간 TTL로 캐시 (DB 미사용)
+- **미리듣기**: YouTube IFrame 임베드, 자동 재생 없음
 
 ## Deployment
 
@@ -76,6 +91,7 @@ lib/
 - **PM2**: Next.js 프로세스 관리 (자동 재시작, 시스템 부팅 시 자동 실행)
 - **deno**: yt-dlp의 YouTube JS 챌린지 해독용 런타임 (~/.deno/bin)
 - **yt-dlp config**: `~/.config/yt-dlp/config` — `--remote-components ejs:github`, `--cookies /home/ubuntu/cookies.txt`
+- **환경 변수**: `.env.local` — `YOUTUBE_API_KEY` (YouTube Data API v3 차트 조회용)
 
 ### YouTube 쿠키 관리
 - YouTube가 클라우드 IP를 봇으로 차단하므로 브라우저 쿠키가 필요
@@ -124,3 +140,4 @@ pm2 restart y2vmusic
 - 다크 테마 기본
 - API 에러 응답: `{ "error": "메시지" }` 형식
 - 포맷 옵션: MP3 (320/192/128), M4A (256/192/128), OPUS (원본), FLAC
+- 플레이리스트 ID 관리: `lib/playlists.ts`에 집중 (ID 변경 시 이 파일만 수정)
