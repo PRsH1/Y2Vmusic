@@ -90,16 +90,17 @@ lib/
 - **certbot**: Let's Encrypt SSL 자동 갱신
 - **PM2**: Next.js 프로세스 관리 (자동 재시작, 시스템 부팅 시 자동 실행)
 - **deno**: yt-dlp의 YouTube JS 챌린지 해독용 런타임 (~/.deno/bin)
-- **yt-dlp config**: `~/.config/yt-dlp/config` — `--remote-components ejs:github`, `--cookies /home/ubuntu/cookies.txt`
+- **Cloudflare WARP**: yt-dlp 프록시 (socks5://127.0.0.1:40000) — 클라우드 IP 봇 차단 우회
+- **yt-dlp config**: `~/.config/yt-dlp/config` — `--remote-components ejs:github`, `--proxy socks5://127.0.0.1:40000`
 - **환경 변수**: `.env.local` — `YOUTUBE_API_KEY` (YouTube Data API v3 차트 조회용)
 
-### YouTube 쿠키 관리
-- YouTube가 클라우드 IP를 봇으로 차단하므로 브라우저 쿠키가 필요
-- 쿠키 파일 위치: `/home/ubuntu/cookies.txt` (Netscape 형식)
-- 쿠키 만료 시 재업로드 필요:
-```bash
-scp -i D:/sshkey/ssh-key-2026-05-25.key <새_쿠키파일> ubuntu@152.67.198.0:~/cookies.txt
-```
+### Cloudflare WARP (YouTube 봇 차단 우회)
+- YouTube가 클라우드 IP를 봇으로 차단하므로 Cloudflare WARP를 SOCKS5 프록시로 사용
+- 모드: `proxy` (전체 트래픽이 아닌 로컬 SOCKS5 프록시만, SSH 등 영향 없음)
+- 포트: 40000 (`warp-cli proxy port 40000`)
+- 서비스: `warp-svc` (systemd, 부팅 시 자동 시작 + 자동 재연결)
+- yt-dlp config에서 `--proxy socks5://127.0.0.1:40000`으로 참조
+- 쿠키 불필요 (WARP 네트워크를 통해 YouTube가 봇으로 인식하지 않음)
 
 ### SSH 접속
 ```bash
@@ -116,6 +117,10 @@ sudo systemctl status nginx   # nginx 상태
 sudo systemctl restart nginx  # nginx 재시작
 
 sudo certbot renew --dry-run  # SSL 갱신 테스트
+
+warp-cli status               # WARP 연결 상태
+warp-cli connect               # WARP 연결
+warp-cli disconnect            # WARP 연결 해제
 ```
 
 ### 서버 배포 (업데이트 시)

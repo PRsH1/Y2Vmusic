@@ -81,7 +81,7 @@ http://localhost:3000 에서 접속.
 | 리버스 프록시 | nginx (80/443 → localhost:3000) |
 | 프로세스 관리 | PM2 (자동 재시작 + 부팅 시 자동 실행) |
 | JS 런타임 | deno (yt-dlp YouTube JS 챌린지 해독용) |
-| YouTube 인증 | 브라우저 쿠키 (`cookies.txt`) — 클라우드 IP 봇 차단 우회 |
+| YouTube 봇 우회 | Cloudflare WARP (SOCKS5 프록시, 쿠키 불필요) |
 | 차트 API | YouTube Data API v3 (`YOUTUBE_API_KEY` 환경 변수) |
 
 ### 서버 업데이트
@@ -95,14 +95,14 @@ pnpm build
 pm2 restart y2vmusic
 ```
 
-### YouTube 쿠키 갱신
+### Cloudflare WARP (YouTube 봇 차단 우회)
 
-YouTube가 클라우드 서버 IP를 봇으로 차단하므로 브라우저 쿠키가 필요합니다. 쿠키 만료 시:
+클라우드 서버 IP가 YouTube에 의해 봇으로 차단되므로, Cloudflare WARP를 SOCKS5 프록시 모드로 사용합니다. 쿠키 갱신이 불필요합니다.
 
-1. Chrome 확장프로그램 "Get cookies.txt LOCALLY"로 youtube.com 쿠키 내보내기
-2. 서버에 업로드:
 ```bash
-scp -i <key> cookies.txt ubuntu@152.67.198.0:~/cookies.txt
+warp-cli status      # 상태 확인
+warp-cli connect     # 연결
+warp-cli disconnect  # 연결 해제
 ```
 
 ## 라이선스
