@@ -2,12 +2,14 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DownloadButton } from "@/components/download-button";
+import { ExploreSection } from "@/components/explore/explore-section";
 import {
   FormatSelector,
   type AudioFormatChoice,
   type QualityChoice,
 } from "@/components/format-selector";
 import { GuideModal } from "@/components/guide-modal";
+import { PreviewPlayer } from "@/components/preview-player";
 import { ProgressBar } from "@/components/progress-bar";
 import { UrlInput } from "@/components/url-input";
 import { VideoInfoCard } from "@/components/video-info";
@@ -65,6 +67,9 @@ export default function Home() {
   const [progress, setProgress] = useState(0);
   const [progressLabel, setProgressLabel] = useState("준비 중");
   const [guideOpen, setGuideOpen] = useState(false);
+  const [previewVideoId, setPreviewVideoId] = useState<string | null>(null);
+  const [previewTitle, setPreviewTitle] = useState<string | null>(null);
+  const [previewChannel, setPreviewChannel] = useState<string | null>(null);
   const progressTimerRef = useRef<number | null>(null);
 
   const isBusy = status === "loading-info" || status === "downloading";
@@ -98,7 +103,9 @@ export default function Home() {
     };
   }, []);
 
-  async function loadInfo() {
+  async function loadInfo(overrideUrl?: string) {
+    const targetUrl = overrideUrl ?? url;
+
     setStatus("loading-info");
     setError(null);
     setInfo(null);
@@ -109,7 +116,7 @@ export default function Home() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({ url: targetUrl }),
       });
 
       if (!response.ok) {
@@ -123,6 +130,24 @@ export default function Home() {
       setStatus("error");
       setError(getErrorMessage(loadError));
     }
+  }
+
+  function handleTrackSelect(videoId: string) {
+    const trackUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    setUrl(trackUrl);
+    void loadInfo(trackUrl);
+  }
+
+  function handlePreview(videoId: string, title: string, channel: string) {
+    setPreviewVideoId(videoId);
+    setPreviewTitle(title);
+    setPreviewChannel(channel);
+  }
+
+  function closePreview() {
+    setPreviewVideoId(null);
+    setPreviewTitle(null);
+    setPreviewChannel(null);
   }
 
   async function download() {
@@ -318,6 +343,21 @@ export default function Home() {
           </section>
         </>
       ) : null}
+
+      {previewVideoId ? (
+        <PreviewPlayer
+          channel={previewChannel}
+          onClose={closePreview}
+          title={previewTitle}
+          videoId={previewVideoId}
+        />
+      ) : null}
+
+      <ExploreSection
+        disabled={isBusy}
+        onPreview={handlePreview}
+        onTrackSelect={handleTrackSelect}
+      />
     </main>
   );
 }
