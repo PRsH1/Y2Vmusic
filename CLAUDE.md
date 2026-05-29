@@ -34,7 +34,7 @@ corepack pnpm typecheck  # TypeScript 타입 체크
 ```
 app/
   layout.tsx              # 루트 레이아웃 (한국어, FOUC 방지 테마 스크립트)
-  page.tsx                # 메인 단일 페이지 (클라이언트 컴포넌트, 테마 토글)
+  page.tsx                # 메인 단일 페이지 (클라이언트 컴포넌트, 테마 토글, 결과 자동 스크롤, 다운로드 진행/완료 처리)
   globals.css             # CSS 변수 (라이트/다크) + Tailwind
   api/
     info/route.ts         # POST /api/info — 영상 정보 조회
@@ -43,7 +43,7 @@ app/
     search/route.ts       # POST /api/search — YouTube 검색 (yt-dlp ytsearch)
 components/               # UI 컴포넌트 (url-input, video-info, format-selector, download-button, progress-bar)
   guide-modal.tsx           # 사용법 모달 (탭 전환, 반응형, ESC/오버레이 닫기)
-  preview-player.tsx        # YouTube IFrame 미리듣기 플레이어 (별도 섹션)
+  preview-player.tsx        # YouTube IFrame 미리듣기 플레이어 (선택 트랙 바로 아래 인라인, ESC/✕ 닫기)
   guide/
     pc-guide.tsx            # PC 사용법 (방법 A: URL 입력 5단계 + 방법 B: 탐색 4단계)
     mobile-guide.tsx        # 모바일 사용법 (방법 A: URL 입력 5단계 + 방법 B: 탐색 4단계)
@@ -52,8 +52,8 @@ components/               # UI 컴포넌트 (url-input, video-info, format-selec
     explore-section.tsx     # 탐색 섹션 컨테이너 (검색바 + 카테고리 + 트랙 리스트)
     search-bar.tsx          # 검색 입력 컴포넌트
     category-pills.tsx      # 카테고리 필 버튼 (가로 스크롤)
-    track-list.tsx          # 트랙 리스트 + 더 보기 페이지네이션
-    track-item.tsx          # 트랙 아이템 (모바일: 아이콘 버튼, 데스크탑: 텍스트 버튼)
+    track-list.tsx          # 트랙 리스트 + 더 보기 페이지네이션 + 인라인 미리듣기(활성 트랙 상태 관리, 트랙 변경 시 닫힘)
+    track-item.tsx          # 트랙 아이템 (모바일: 아이콘 버튼, 데스크탑: 텍스트 버튼, 미리듣기 토글 aria-expanded)
 lib/
   ytdlp.ts               # yt-dlp CLI 래퍼 (getVideoInfo, downloadAudio, searchYouTube, fetchPlaylistFromYtDlp) + 429 재시도
   youtube-api.ts          # YouTube Data API v3 래퍼 (fetchPlaylistFromApi)
@@ -78,7 +78,11 @@ lib/
 - **서버 캐시**: 차트 데이터는 메모리 Map에 2시간 TTL로 캐시, 영상 info는 10분 TTL로 캐시 (DB 미사용)
 - **429 재시도**: yt-dlp의 모든 호출에 exponential backoff 재시도 적용 (최대 2회, 3초→9초 간격, HTTP 429만 대상)
 - **다운로드 메타데이터 전달**: 클라이언트가 info 조회 시 받은 title/channel/thumbnail을 다운로드 요청에 포함하여 서버 측 중복 info 호출 제거
-- **미리듣기**: YouTube IFrame 임베드, 자동 재생 없음
+- **미리듣기**: YouTube IFrame 임베드, 자동 재생 없음. 선택한 트랙 바로 아래 인라인(아코디언)으로 표시 — 재클릭/✕/ESC로 닫힘, 다른 트랙 선택 시 이동, 검색/카테고리 전환 시 자동 닫힘
+- **결과 자동 스크롤**: 차트/검색에서 트랙 선택 시 상단 결과 카드로 부드럽게 스크롤(`scrollIntoView`), 미리듣기는 `block: "nearest"`로 필요할 때만 이동
+- **진행률 2단계**: 서버 처리(추출·변환) 동안은 무한(indeterminate) 표시, 응답 수신 후 파일 전송 구간만 Content-Length 기반 정확한 % 표시 (가짜 타이머 미사용)
+- **다운로드 완료 알림**: 저장 완료 시 파일명을 담은 성공 배너 노출(수동 ✕ 닫기 + 8초 자동 해제)
+- **모션 접근성**: 스크롤·진행률 애니메이션은 `prefers-reduced-motion` 존중
 - **테마**: CSS 변수 기반 라이트/다크 전환, `data-theme` 속성 + localStorage 저장, FOUC 방지 인라인 스크립트
 - **반응형 트랙 버튼**: 모바일(< 640px) 아이콘 버튼, 데스크탑(≥ 640px) 텍스트 버튼
 
