@@ -1,20 +1,36 @@
 "use client";
 
+import { useEffect } from "react";
+
 type PreviewPlayerProps = {
-  videoId: string;
-  title: string | null;
   channel: string | null;
   onClose: () => void;
+  title: string | null;
+  videoId: string;
 };
 
 export function PreviewPlayer({
-  videoId,
-  title,
   channel,
   onClose,
+  title,
+  videoId,
 }: PreviewPlayerProps) {
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onClose]);
+
   return (
-    <section className="grid gap-3 rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] p-4">
+    <section className="grid gap-3 rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] p-3 sm:p-4">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-sm font-bold text-[color:var(--text)]">
           미리듣기
@@ -25,7 +41,7 @@ export function PreviewPlayer({
           onClick={onClose}
           type="button"
         >
-          X
+          ✕
         </button>
       </div>
       <div className="mx-auto w-full max-w-[480px]">

@@ -8,9 +8,8 @@ import { PLAYLISTS } from "@/lib/playlists";
 import type { ChartTrack } from "@/lib/youtube-api";
 
 type ExploreSectionProps = {
-  onTrackSelect: (videoId: string) => void;
-  onPreview: (videoId: string, title: string, channel: string) => void;
   disabled: boolean;
+  onTrackSelect: (videoId: string) => void;
 };
 
 type ExploreMode = "chart" | "search";
@@ -57,9 +56,8 @@ async function fetchWithTimeout(
 }
 
 export function ExploreSection({
-  onTrackSelect,
-  onPreview,
   disabled,
+  onTrackSelect,
 }: ExploreSectionProps) {
   const [activePlaylist, setActivePlaylist] = useState(PLAYLISTS[0]?.id ?? "");
   const [tracks, setTracks] = useState<ChartTrack[]>([]);
@@ -197,7 +195,6 @@ export function ExploreSection({
         </p>
       ) : (
         <TrackList
-          onPreview={onPreview}
           onTrackSelect={(videoId) => {
             if (!disabled) {
               onTrackSelect(videoId);

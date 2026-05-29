@@ -9,7 +9,6 @@ import {
   type QualityChoice,
 } from "@/components/format-selector";
 import { GuideModal } from "@/components/guide-modal";
-import { PreviewPlayer } from "@/components/preview-player";
 import { ProgressBar } from "@/components/progress-bar";
 import { UrlInput } from "@/components/url-input";
 import { VideoInfoCard } from "@/components/video-info";
@@ -104,13 +103,16 @@ export default function Home() {
   const [format, setFormat] = useState<AudioFormatChoice>("mp3");
   const [quality, setQuality] = useState<QualityChoice>("best");
   const [progress, setProgress] = useState(0);
+  const [progressIndeterminate, setProgressIndeterminate] = useState(false);
   const [progressLabel, setProgressLabel] = useState("준비 중");
   const [guideOpen, setGuideOpen] = useState(false);
-  const [previewVideoId, setPreviewVideoId] = useState<string | null>(null);
-  const [previewTitle, setPreviewTitle] = useState<string | null>(null);
-  const [previewChannel, setPreviewChannel] = useState<string | null>(null);
+  const [lastDownload, setLastDownload] = useState<{ fileName: string } | null>(
+    null,
+  );
   const [theme, setTheme] = useState<Theme>("light");
-  const progressTimerRef = useRef<number | null>(null);
+  const downloadCompleteTimerRef = useRef<number | null>(null);
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const shouldScrollToResultRef = useRef(false);
 
   const isBusy = status === "loading-info" || status === "downloading";
   const canDownload = info !== null && !isBusy;
@@ -135,13 +137,49 @@ export default function Home() {
     return "대기";
   }, [progressLabel, status]);
 
+  function clearLastDownloadTimer() {
+    if (downloadCompleteTimerRef.current) {
+      window.clearTimeout(downloadCompleteTimerRef.current);
+      downloadCompleteTimerRef.current = null;
+    }
+  }
+
+  function clearLastDownload() {
+    clearLastDownloadTimer();
+    setLastDownload(null);
+  }
+
+  function scheduleLastDownloadClear() {
+    clearLastDownloadTimer();
+    downloadCompleteTimerRef.current = window.setTimeout(() => {
+      setLastDownload(null);
+      downloadCompleteTimerRef.current = null;
+    }, 8_000);
+  }
+
   useEffect(() => {
     return () => {
-      if (progressTimerRef.current) {
-        window.clearInterval(progressTimerRef.current);
-      }
+      clearLastDownloadTimer();
     };
   }, []);
+
+  useEffect(() => {
+    if (status === "ready" && shouldScrollToResultRef.current) {
+      const behavior: ScrollBehavior = window.matchMedia(
+        "(prefers-reduced-motion: reduce)",
+      ).matches
+        ? "auto"
+        : "smooth";
+
+      resultsRef.current?.scrollIntoView({ behavior, block: "start" });
+      shouldScrollToResultRef.current = false;
+      return;
+    }
+
+    if (status === "error") {
+      shouldScrollToResultRef.current = false;
+    }
+  }, [status]);
 
   useEffect(() => {
     const currentTheme = document.documentElement.getAttribute("data-theme");
@@ -154,6 +192,10 @@ export default function Home() {
     setStatus("loading-info");
     setError(null);
     setInfo(null);
+    clearLastDownload();
+    setProgress(0);
+    setProgressIndeterminate(false);
+    setProgressLabel("준비 중");
 
     try {
       const response = await fetch("/api/info", {
@@ -180,19 +222,8 @@ export default function Home() {
   function handleTrackSelect(videoId: string) {
     const trackUrl = `https://www.youtube.com/watch?v=${videoId}`;
     setUrl(trackUrl);
+    shouldScrollToResultRef.current = true;
     void loadInfo(trackUrl);
-  }
-
-  function handlePreview(videoId: string, title: string, channel: string) {
-    setPreviewVideoId(videoId);
-    setPreviewTitle(title);
-    setPreviewChannel(channel);
-  }
-
-  function closePreview() {
-    setPreviewVideoId(null);
-    setPreviewTitle(null);
-    setPreviewChannel(null);
   }
 
   function toggleTheme() {
@@ -214,18 +245,10 @@ export default function Home() {
 
     setStatus("downloading");
     setError(null);
-    setProgress(8);
-    setProgressLabel("오디오 스트림 준비 중");
-
-    progressTimerRef.current = window.setInterval(() => {
-      setProgress((current) => {
-        if (current >= 84) {
-          return current;
-        }
-
-        return Math.min(84, current + Math.max(1, Math.round((84 - current) * 0.08)));
-      });
-    }, 700);
+    clearLastDownload();
+    setProgress(0);
+    setProgressIndeterminate(true);
+    setProgressLabel("서버에서 추출·변환 중… (시간이 걸릴 수 있어요)");
 
     try {
       const response = await fetch("/api/download", {
@@ -243,21 +266,20 @@ export default function Home() {
         }),
       });
 
-      if (progressTimerRef.current) {
-        window.clearInterval(progressTimerRef.current);
-        progressTimerRef.current = null;
-      }
-
       if (!response.ok) {
         throw new Error(await readError(response));
       }
 
-      const contentLength = Number(response.headers.get("Content-Length") ?? 0);
+      const contentLengthHeader = response.headers.get("Content-Length");
+      const contentLength = contentLengthHeader ? Number(contentLengthHeader) : 0;
+      const hasKnownLength = Number.isFinite(contentLength) && contentLength > 0;
       const reader = response.body?.getReader();
       const chunks: BlobPart[] = [];
       let received = 0;
 
-      setProgressLabel("파일 수신 중");
+      setProgress(0);
+      setProgressIndeterminate(!hasKnownLength);
+      setProgressLabel("파일 다운로드 중");
 
       if (reader) {
         while (true) {
@@ -272,17 +294,17 @@ export default function Home() {
             chunk.set(value);
             chunks.push(chunk.buffer);
             received += value.byteLength;
-            setProgress((current) => {
-              if (contentLength > 0) {
-                return Math.min(99, 85 + Math.round((received / contentLength) * 14));
-              }
 
-              return Math.min(98, current + 2);
-            });
+            if (hasKnownLength) {
+              setProgress(Math.min(100, Math.round((received / contentLength) * 100)));
+            }
           }
         }
       } else {
         chunks.push(await response.arrayBuffer());
+        if (hasKnownLength) {
+          setProgress(100);
+        }
       }
 
       const blob = new Blob(chunks, {
@@ -301,20 +323,21 @@ export default function Home() {
       link.remove();
       URL.revokeObjectURL(objectUrl);
 
+      setLastDownload({ fileName });
+      scheduleLastDownloadClear();
       setProgress(100);
+      setProgressIndeterminate(false);
       setProgressLabel("완료");
       window.setTimeout(() => {
         setStatus("ready");
         setProgress(0);
+        setProgressIndeterminate(false);
         setProgressLabel("준비 중");
       }, 900);
     } catch (downloadError) {
-      if (progressTimerRef.current) {
-        window.clearInterval(progressTimerRef.current);
-        progressTimerRef.current = null;
-      }
       setStatus("error");
       setProgress(0);
+      setProgressIndeterminate(false);
       setProgressLabel("준비 중");
       setError(getErrorMessage(downloadError));
     }
@@ -382,7 +405,7 @@ export default function Home() {
       </section>
 
       {info ? (
-        <>
+        <div className="grid gap-6" ref={resultsRef}>
           <VideoInfoCard info={info} />
           <FormatSelector
             disabled={isBusy}
@@ -407,27 +430,37 @@ export default function Home() {
               downloading={status === "downloading"}
               onClick={download}
             />
+            {lastDownload ? (
+              <div className="flex items-start justify-between gap-3 rounded-md border border-[color:var(--accent)] bg-[color:var(--accent-soft)] px-4 py-3 text-sm text-[color:var(--accent-strong)] md:col-span-2">
+                <span className="min-w-0 break-words">
+                  ✓ {lastDownload.fileName} 저장 완료 · 브라우저 다운로드 폴더를
+                  확인하세요
+                </span>
+                <button
+                  aria-label="완료 알림 닫기"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[color:var(--accent)] bg-[color:var(--surface)] text-xs font-bold text-[color:var(--accent-strong)] transition-colors hover:bg-[color:var(--accent-soft-hover)]"
+                  onClick={clearLastDownload}
+                  type="button"
+                >
+                  ✕
+                </button>
+              </div>
+            ) : null}
             {status === "downloading" ? (
               <div className="md:col-span-2">
-                <ProgressBar label={progressLabel} value={progress} />
+                <ProgressBar
+                  indeterminate={progressIndeterminate}
+                  label={progressLabel}
+                  value={progress}
+                />
               </div>
             ) : null}
           </section>
-        </>
-      ) : null}
-
-      {previewVideoId ? (
-        <PreviewPlayer
-          channel={previewChannel}
-          onClose={closePreview}
-          title={previewTitle}
-          videoId={previewVideoId}
-        />
+        </div>
       ) : null}
 
       <ExploreSection
         disabled={isBusy}
-        onPreview={handlePreview}
         onTrackSelect={handleTrackSelect}
       />
     </main>

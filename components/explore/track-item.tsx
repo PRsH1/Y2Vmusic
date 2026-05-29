@@ -1,27 +1,32 @@
 "use client";
 
 type TrackItemProps = {
-  rank?: number;
-  videoId: string;
-  title: string;
   channel: string;
-  thumbnail: string | null;
   duration: string | null;
+  index: number;
+  isPreviewing: boolean;
   onSelect: (videoId: string) => void;
-  onPreview: (videoId: string, title: string, channel: string) => void;
+  onTogglePreview: (index: number) => void;
+  rank?: number;
+  thumbnail: string | null;
+  title: string;
+  videoId: string;
 };
 
 export function TrackItem({
-  rank,
-  videoId,
-  title,
   channel,
-  thumbnail,
   duration,
+  index,
+  isPreviewing,
   onSelect,
-  onPreview,
+  onTogglePreview,
+  rank,
+  thumbnail,
+  title,
+  videoId,
 }: TrackItemProps) {
   const hasRank = typeof rank === "number";
+  const previewLabel = isPreviewing ? "미리듣기 닫기" : "미리듣기 열기";
 
   return (
     <div
@@ -38,9 +43,10 @@ export function TrackItem({
         </span>
       ) : null}
       <button
-        aria-label="미리듣기"
+        aria-expanded={isPreviewing}
+        aria-label={previewLabel}
         className="relative aspect-square h-12 w-12 cursor-pointer overflow-hidden rounded bg-[color:var(--media-bg)]"
-        onClick={() => onPreview(videoId, title, channel)}
+        onClick={() => onTogglePreview(index)}
         type="button"
       >
         {thumbnail ? (
@@ -65,9 +71,10 @@ export function TrackItem({
       </span>
       <span className="flex items-center gap-2">
         <button
-          aria-label="미리듣기"
+          aria-expanded={isPreviewing}
+          aria-label={previewLabel}
           className="flex h-8 w-8 items-center justify-center rounded-full border border-[color:var(--border)] bg-[color:var(--surface-raised)] p-0 text-sm font-bold text-[color:var(--muted)] transition-colors hover:border-[color:var(--accent)] hover:text-[color:var(--accent)] sm:w-auto sm:rounded-md sm:px-3 sm:text-xs"
-          onClick={() => onPreview(videoId, title, channel)}
+          onClick={() => onTogglePreview(index)}
           type="button"
         >
           <span className="sm:hidden">▶</span>

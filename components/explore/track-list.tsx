@@ -1,46 +1,88 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { TrackItem } from "@/components/explore/track-item";
+import { PreviewPlayer } from "@/components/preview-player";
 import type { ChartTrack } from "@/lib/youtube-api";
 
 type TrackListProps = {
-  tracks: ChartTrack[];
   onTrackSelect: (videoId: string) => void;
-  onPreview: (videoId: string, title: string, channel: string) => void;
   showRank?: boolean;
+  tracks: ChartTrack[];
 };
 
 const PAGE_SIZE = 20;
 
 export function TrackList({
-  tracks,
   onTrackSelect,
-  onPreview,
   showRank = false,
+  tracks,
 }: TrackListProps) {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
   const visibleTracks = tracks.slice(0, visibleCount);
 
   useEffect(() => {
+    setActiveIndex(null);
     setVisibleCount(PAGE_SIZE);
   }, [tracks]);
+
+  useEffect(() => {
+    if (activeIndex === null) {
+      return;
+    }
+
+    const previewElement = previewRef.current;
+
+    if (!previewElement) {
+      return;
+    }
+
+    const behavior: ScrollBehavior = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches
+      ? "auto"
+      : "smooth";
+
+    previewElement.scrollIntoView({ behavior, block: "nearest" });
+  }, [activeIndex]);
 
   return (
     <div className="grid gap-3">
       <div className="[&>*:last-child]:border-b-0">
         {visibleTracks.map((track, index) => (
-          <TrackItem
-            channel={track.channel}
-            duration={track.duration}
-            key={`${track.videoId}-${index}`}
-            onPreview={onPreview}
-            onSelect={onTrackSelect}
-            rank={showRank ? track.rank : undefined}
-            thumbnail={track.thumbnail}
-            title={track.title}
-            videoId={track.videoId}
-          />
+          <Fragment key={`${track.videoId}-${index}`}>
+            <TrackItem
+              channel={track.channel}
+              duration={track.duration}
+              index={index}
+              isPreviewing={index === activeIndex}
+              onSelect={onTrackSelect}
+              onTogglePreview={(trackIndex) =>
+                setActiveIndex((current) =>
+                  current === trackIndex ? null : trackIndex,
+                )
+              }
+              rank={showRank ? track.rank : undefined}
+              thumbnail={track.thumbnail}
+              title={track.title}
+              videoId={track.videoId}
+            />
+            {index === activeIndex ? (
+              <div
+                className="border-b border-[color:var(--border)] px-2 py-3"
+                ref={previewRef}
+              >
+                <PreviewPlayer
+                  channel={track.channel}
+                  onClose={() => setActiveIndex(null)}
+                  title={track.title}
+                  videoId={track.videoId}
+                />
+              </div>
+            ) : null}
+          </Fragment>
         ))}
       </div>
       {visibleCount < tracks.length ? (

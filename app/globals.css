@@ -106,3 +106,26 @@ input:focus-visible {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+@keyframes progress-indeterminate-slide {
+  from {
+    transform: translateX(-110%);
+  }
+
+  to {
+    transform: translateX(260%);
+  }
+}
+
+.progress-indeterminate-bar {
+  animation: progress-indeterminate-slide 1.2s ease-in-out infinite;
+  width: 40%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-indeterminate-bar {
+    animation: none;
+    opacity: 0.65;
+    transform: translateX(75%);
+  }
+}
