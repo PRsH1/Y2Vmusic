@@ -1,7 +1,33 @@
 import { spawn } from "node:child_process";
+import os from "node:os";
 import path from "node:path";
 
 const isWindows = process.platform === "win32";
+
+/**
+ * Nice value applied to every spawned CLI.
+ *
+ * yt-dlp reaches YouTube through the local Cloudflare WARP SOCKS5 proxy, and
+ * `warp-svc` shares this box's single core. Measured on the production server:
+ * with an unniced CPU hog running, 13 of 15 requests through the proxy failed;
+ * at nice 19 none did. Extraction and conversion therefore yield to the daemon
+ * they depend on. On an otherwise idle box this costs nothing — a lone process
+ * still gets the whole core regardless of its nice value.
+ */
+const SUBPROCESS_NICE = 15;
+
+function deprioritize(pid: number | undefined): void {
+  if (pid === undefined) {
+    return;
+  }
+
+  try {
+    os.setPriority(pid, SUBPROCESS_NICE);
+  } catch {
+    // Lowering priority needs no privileges, but a platform or sandbox may
+    // still refuse. The job is worth running at normal priority either way.
+  }
+}
 
 const EXTRA_PATH_DIRS = isWindows
   ? [
@@ -79,6 +105,9 @@ export function runCli(
       windowsHide: true,
       env: { ...process.env, PATH: getEnhancedPath() },
     });
+
+    // Children spawned later inherit this, so yt-dlp's deno helper is covered.
+    deprioritize(child.pid);
 
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
