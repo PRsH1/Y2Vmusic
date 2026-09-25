@@ -252,9 +252,17 @@ export const MAX_FILESIZE = "500M";
  * and no way to tell a rejection apart from a silent failure.
  */
 export function isFilterRejection(error: unknown): boolean {
+  if (!(error instanceof CliError)) {
+    return false;
+  }
+
+  // yt-dlp exits 101 when a --break-* option stops the run, and the filter is
+  // the only one configured here. The message itself lands on stdout, not
+  // stderr, so both streams are checked as a fallback.
   return (
-    error instanceof CliError &&
-    (error.stderr?.includes("does not pass filter") ?? false)
+    error.exitCode === 101 ||
+    (error.stdout ?? "").includes("does not pass filter") ||
+    (error.stderr ?? "").includes("does not pass filter")
   );
 }
 

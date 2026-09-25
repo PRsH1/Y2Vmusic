@@ -29,6 +29,8 @@ export class CliError extends Error {
   readonly args: string[];
   readonly exitCode?: number | null;
   readonly stderr?: string;
+  /** yt-dlp reports several refusals on stdout, so callers need both streams. */
+  readonly stdout?: string;
   readonly code?: string;
 
   constructor(
@@ -38,6 +40,7 @@ export class CliError extends Error {
       args: string[];
       exitCode?: number | null;
       stderr?: string;
+      stdout?: string;
       code?: string;
     },
   ) {
@@ -47,6 +50,7 @@ export class CliError extends Error {
     this.args = details.args;
     this.exitCode = details.exitCode;
     this.stderr = details.stderr;
+    this.stdout = details.stdout;
     this.code = details.code;
   }
 }
@@ -151,6 +155,7 @@ export function runCli(
           args,
           exitCode,
           stderr,
+          stdout,
         }),
       );
     });
