@@ -80,7 +80,7 @@ http://localhost:3000 에서 접속.
 - 일반 YouTube에서도 재생 가능한 영상만 지원합니다.
 - **라이브 방송은 추출할 수 없습니다.** 끝이 없어 디스크를 무한정 소진하기 때문입니다.
 - **영상 길이 3시간, 파일 500MB 상한**이 있습니다. 초과 시 안내 메시지와 함께 거부됩니다.
-- 서버의 Cloudflare WARP 프록시가 간헐적으로 끊겨 다운로드가 실패할 때가 있습니다. 대부분 재시도하면 성공합니다. (원인 조사 중)
+- 1 OCPU 서버라 다운로드 1건에 약 1~2분이 걸립니다 (추출 + 변환 + 전송).
 
 ## 보안
 
@@ -128,6 +128,18 @@ pm2 restart y2vmusic
 warp-cli status      # 상태 확인
 warp-cli connect     # 연결
 warp-cli disconnect  # 연결 해제
+```
+
+`warp-svc`는 앱과 같은 코어를 나눠 쓰므로, CPU가 포화되면 프록시가 응답을 멈춥니다. 이를 막기 위해 두 가지가 걸려 있습니다.
+
+- 앱이 띄우는 yt-dlp·ffmpeg는 `os.setPriority`로 우선순위를 낮춰 데몬에 양보 (`lib/process.ts`)
+- `warp-svc`는 systemd drop-in으로 `Nice=-10`, `CPUWeight=10000`
+
+다운로드가 `Connection refused`나 `Sign in to confirm you're not a bot`으로 실패하면 이 두 설정이 살아 있는지 먼저 확인하세요.
+
+```bash
+systemctl show warp-svc -p Nice -p CPUWeight   # Nice=-10, CPUWeight=10000
+ps -o ni,comm -p $(pgrep yt-dlp)                # 다운로드 중 15여야 정상
 ```
 
 ### yt-dlp 업데이트

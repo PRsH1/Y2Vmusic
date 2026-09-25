@@ -79,6 +79,7 @@ instrumentation.ts        # 서버 기동 시 1회 실행 — temp/ 고아 잔�
 - **canonical videoId 파서**: `lib/validate.ts`의 `extractVideoId`가 `URL` 구조 파싱 + 11자 엄격 검증으로 ID를 뽑는다. 기존 정규식(`(?:v=|youtu\.be\/)([\w-]{11})`)은 `?xv=<11자>&v=<실제ID>` 에서 `xv=` 안의 `v=`를 먼저 잡아 **엉뚱한 ID로 캐시를 오염**시켰다. shorts/embed/live URL도 이제 캐시에 적중한다.
 - **라이브·길이·용량 상한**: `downloadAudio`에 `--break-match-filters "!is_live & duration < 10800"` + `--max-filesize 500M`. `--match-filter`가 아니라 `--break-match-filters`인 이유는 전자가 **거부 시 exit 0에 파일만 없어서** 내부 오류로 둔갑하기 때문(후자는 exit 101). 라이브 URL은 `lib/validate.ts`가 `/live/`를 허용하므로 이 상한이 유일한 방어선이다.
 - **거부 사유 메시지 매핑**: 의도적으로 거부하는 경로(필터·용량)는 사람이 읽을 수 있는 한국어로 바꿔 응답한다. 그 외에는 yt-dlp stderr를 그대로 노출한다. 주의 — yt-dlp는 `does not pass filter` 같은 사유를 **stdout**에 쓰므로 `CliError`가 stdout도 보관한다.
+- **서브프로세스 우선순위 양보 (WARP 보호)**: `runCli`이 spawn 직후 `os.setPriority(pid, 15)`로 우선순위를 낮춘다. yt-dlp는 로컬 WARP SOCKS5 프록시를 통해 YouTube에 닿는데, `warp-svc`가 같은 1 OCPU를 우리 작업과 나눠 쓰다 굶으면 프록시가 응답을 멈춘다. `nice` 접두사가 아니라 Node 내장 API를 쓴 이유는 Windows 로컬 개발에서도 동작해야 하기 때문이다. yt-dlp가 나중에 띄우는 deno는 자식이라 값을 상속한다(서버에서 둘 다 nice 15 확인). 경합이 없으면 nice 값과 무관하게 코어를 100% 받으므로 평소 속도 저하는 없다.
 - **ID3 태그**: ffmpeg로 MP3/M4A/FLAC 변환 시 제목, 아티스트, 앨범아트 자동 삽입
 - **하이브리드 차트**: PL 접두사 차트는 YouTube Data API v3, RDCLAK5uy_ 장르 플레이리스트는 yt-dlp로 분기 처리
 - **서버 캐시**: 차트 데이터는 메모리 Map에 2시간 TTL로 캐시, 영상 info는 10분 TTL로 캐시 (DB 미사용)
@@ -110,6 +111,7 @@ instrumentation.ts        # 서버 기동 시 1회 실행 — temp/ 고아 잔�
 - **Swap**: 2GB swap 파일 (`/swapfile`, fstab 등록) — 빌드 시 OOM 방지
 - **deno**: yt-dlp의 YouTube JS 챌린지 해독용 런타임 (~/.deno/bin)
 - **Cloudflare WARP**: yt-dlp 프록시 (socks5://127.0.0.1:40000) — 클라우드 IP 봇 차단 우회
+  - systemd drop-in `/etc/systemd/system/warp-svc.service.d/priority.conf` 로 `Nice=-10`, `CPUWeight=10000` 적용. 우리가 제어하지 않는 CPU 부하(`pnpm build` 등)로부터 데몬을 보호한다 (아래 "WARP CPU 기아" 참고)
 - **yt-dlp config**: `~/.config/yt-dlp/config` — `--remote-components ejs:github`, `--proxy socks5://127.0.0.1:40000`
 - **yt-dlp 설치**: pip 전역 (`/usr/local/lib/python3.12/dist-packages`). 업데이트: `sudo python3 -m pip install -U --break-system-packages yt-dlp`
 - **환경 변수**: `.env.local` — `YOUTUBE_API_KEY` (YouTube Data API v3 차트 조회용)
@@ -189,6 +191,16 @@ pm2 restart y2vmusic
 
 - **YouTube Music 전용 콘텐츠 미지원**: `music.youtube.com`에서만 재생 가능한 영상(YouTube Music Premium 전용)은 yt-dlp로 추출 불가. YouTube Music Premium 계정 쿠키 + `web_music` 클라이언트가 필요하며, 현재 지원하지 않음.
 - **서버 OOM (해결됨)**: Oracle Cloud 1GB RAM 인스턴스에서 `pnpm build` 시 OOM이 발생했으나, 2GB swap 파일 추가로 해결. 빌드가 느려질 수는 있으나 서버가 죽지는 않음.
-- **WARP 프록시 간헐적 연결 거부 (미해결)**: `warp-cli status`가 `Connected`이고 40000 포트도 리스닝 중이며 `warp-svc` 재시작 이력도 없는데, yt-dlp가 `[Errno 111] Connection refused`로 실패하는 경우가 잦다. 한 세션에서 다운로드 시도 8회 중 4회 실패를 관측했다. WARP이 끊기면 yt-dlp가 서버 실IP로 나가 `Sign in to confirm you're not a bot` 에 걸린다. 사용자에게는 "가끔 실패하고 영어 에러가 뜬다"로 보인다. 재시도하면 대개 성공한다. **원인 미규명 — 별도 조사 필요.**
+- **WARP CPU 기아 (해결됨)**: yt-dlp가 `[Errno 111] Connection refused` / `timed out`으로 자주 실패했다(다운로드 8회 중 4회). `warp-cli status`는 계속 `Connected`이고 터널 지표도 정상(지연 4ms, 손실 0.03%)이라 헷갈렸는데, **원인은 CPU 경합**이었다. 프로덕션에서 부하만 바꿔 측정:
+
+  | 조건 | 프록시 실패 |
+  |---|---|
+  | CPU 유휴 | 0 / 15 |
+  | CPU 포화 (nice 0) | 13 / 15 |
+  | CPU 포화 (nice 19) | 0 / 15 |
+
+  다운로드 경로만 실패했던 이유는 그 경로만 CPU를 포화시키기 때문이다 — yt-dlp의 JS 챌린지 해독(deno)과 ffmpeg 변환이 코어를 채우는 동안 같은 yt-dlp가 WARP을 통해 미디어를 받아야 한다. 해결: 서브프로세스 `os.setPriority` + `warp-svc` systemd 우선순위(둘 다 위 참고). 적용 후 연속 다운로드 **5/5 성공**(76~112초).
+
+  진단 시 참고: `journalctl -u warp-svc | grep "hung daemon"` 의 워치독 경고는 2분마다 만성적으로 찍히지만 급성 실패와 무관했다(부하 실험 구간에서 0건). `Socks greeting failed ... UnexpectedEof` 는 불완전한 SOCKS 핸드셰이크(포트 스캔·TCP 연결 테스트)가 남기는 것이라 역시 무관하다.
 - **인증·레이트리밋 없음**: 공개 URL인데 `/api/download`가 누구에게나 열려 있다. nginx basic auth를 적용했다가 사용자 요청으로 되돌렸다(설정 백업: `/etc/nginx/sites-available/y2vmusic.bak.*`). 포트 3000 차단과 localhost 바인딩은 유지되므로 nginx 우회는 불가하지만, 1 OCPU / 1GB 환경에서 동시 요청 보호 장치가 없다. **다음 작업 후보**: 비싼 작업(yt-dlp를 띄우는 전 경로) admission 제어 + `runCli` 작업 데드라인 + 자식 프로세스 그룹 종료. 두 가지는 함께 가야 한다 — 데드라인 없는 세마포어는 한 번 멈추면 영구 데드락이다.
 - **`runCli` 타임아웃 없음**: `lib/process.ts`는 출력 크기 상한만 있고 시간 제한이나 요청 abort 전파가 없다. 브라우저를 닫아도 yt-dlp/ffmpeg는 계속 돈다. `child.kill()`은 직계 자식에게 SIGTERM 한 번뿐이라 yt-dlp가 띄운 deno(115MB)·ffmpeg가 고아로 남을 수 있다.
