@@ -19,7 +19,7 @@ YouTube 영상에서 최고 품질 오디오를 추출하는 개인용 웹앱.
 - 곡 검색 (YouTube 검색 연동)
 - 미리듣기 (선택한 트랙 바로 아래 인라인 YouTube 플레이어, ESC로 닫기)
 - YouTube 429 rate limit 자동 재시도 (exponential backoff)
-- 영상 정보 서버 캐시 (동일 영상 반복 조회 시 즉시 응답)
+- 영상 정보 서버 캐시 (동일 영상 반복 조회 시 즉시 응답, shorts/embed/live URL 포함)
 
 ## 기술 스택
 
@@ -78,6 +78,20 @@ http://localhost:3000 에서 접속.
 
 - YouTube Music 전용 콘텐츠(`music.youtube.com`에서만 재생 가능한 영상)는 다운로드할 수 없습니다.
 - 일반 YouTube에서도 재생 가능한 영상만 지원합니다.
+- **라이브 방송은 추출할 수 없습니다.** 끝이 없어 디스크를 무한정 소진하기 때문입니다.
+- **영상 길이 3시간, 파일 500MB 상한**이 있습니다. 초과 시 안내 메시지와 함께 거부됩니다.
+- 서버의 Cloudflare WARP 프록시가 간헐적으로 끊겨 다운로드가 실패할 때가 있습니다. 대부분 재시도하면 성공합니다. (원인 조사 중)
+
+## 보안
+
+개인용이지만 공개 URL로 운영되므로 최소한의 방어를 둡니다.
+
+- **앨범아트 URL은 서버가 videoId로 직접 구성**합니다. 클라이언트가 보낸 임의 URL을 서버가 대신 요청하는 경로(SSRF)를 차단했습니다. 추가로 `i.ytimg.com` 허용목록, https 강제, 리다이렉트 거부, 5MB 크기 상한을 겁니다.
+- **videoId 추출은 문자열 매칭이 아닌 `URL` 구조 파싱**입니다. `?xv=...&v=...` 같은 조작된 쿼리로 캐시를 오염시킬 수 없습니다.
+- **앱 포트(3000)는 외부에 열려 있지 않습니다.** iptables 차단 + `127.0.0.1` 바인딩 이중 방어이며, 외부 접근은 nginx(80/443)를 통해서만 가능합니다.
+- **임시 파일은 요청별 디렉터리에 격리**되어 성공·실패 어느 쪽이든 통째로 삭제됩니다. 기동 시 6시간 초과 잔여물을 자동 정리합니다.
+
+> 현재 로그인 인증과 요청 수 제한은 없습니다. 동시 요청 보호 장치가 없으므로 링크를 널리 공유하지 마세요.
 
 ## 배포 환경
 
@@ -88,8 +102,9 @@ http://localhost:3000 에서 접속.
 | OS | Ubuntu 24.04 |
 | 리전 | South Korea North (Chuncheon) |
 | SSL | Let's Encrypt (certbot, 자동 갱신) |
-| 리버스 프록시 | nginx (80/443 → localhost:3000) |
-| 프로세스 관리 | PM2 (자동 재시작 + 부팅 시 자동 실행) |
+| 리버스 프록시 | nginx (80/443 → 127.0.0.1:3000) |
+| 프로세스 관리 | PM2 fork 모드 (자동 재시작 + 부팅 시 자동 실행) |
+| 외부 개방 포트 | 22 / 80 / 443 — 앱 포트 3000은 차단 |
 | JS 런타임 | deno (yt-dlp YouTube JS 챌린지 해독용) |
 | YouTube 봇 우회 | Cloudflare WARP (SOCKS5 프록시, 쿠키 불필요) |
 | 차트 API | YouTube Data API v3 (`YOUTUBE_API_KEY` 환경 변수) |
@@ -113,6 +128,15 @@ pm2 restart y2vmusic
 warp-cli status      # 상태 확인
 warp-cli connect     # 연결
 warp-cli disconnect  # 연결 해제
+```
+
+### yt-dlp 업데이트
+
+YouTube가 추출 방식을 주기적으로 바꾸므로, 다운로드가 `403 Forbidden`으로 실패하기 시작하면 먼저 yt-dlp를 최신으로 올립니다.
+
+```bash
+sudo python3 -m pip install -U --break-system-packages yt-dlp
+pm2 restart y2vmusic
 ```
 
 ## 라이선스

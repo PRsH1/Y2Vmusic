@@ -55,16 +55,17 @@ components/               # UI 컴포넌트 (url-input, video-info, format-selec
     track-list.tsx          # 트랙 리스트 + 더 보기 페이지네이션 + 인라인 미리듣기(활성 트랙 상태 관리, 트랙 변경 시 닫힘)
     track-item.tsx          # 트랙 아이템 (모바일: 아이콘 버튼, 데스크탑: 텍스트 버튼, 미리듣기 토글 aria-expanded)
 lib/
-  ytdlp.ts               # yt-dlp CLI 래퍼 (getVideoInfo, downloadAudio, searchYouTube, fetchPlaylistFromYtDlp) + 429 재시도
+  ytdlp.ts               # yt-dlp CLI 래퍼 (getVideoInfo, downloadAudio, searchYouTube, fetchPlaylistFromYtDlp) + 429 재시도 + 라이브/길이/용량 상한
   youtube-api.ts          # YouTube Data API v3 래퍼 (fetchPlaylistFromApi)
   playlists.ts            # 플레이리스트 ID 정의 + 메타데이터
   chart-cache.ts          # 서버 캐시 — 차트 데이터 (Map 기반, TTL 2시간)
   info-cache.ts           # 서버 캐시 — 영상 info (Map 기반, TTL 10분)
   ffmpeg.ts               # ffmpeg CLI 래퍼 (convert, 메타데이터/앨범아트 삽입)
-  process.ts              # child_process.spawn 래퍼 (PATH 보강 포함)
-  validate.ts             # YouTube URL 유효성 검사
-  temp.ts                 # 임시 파일 생성/정리
-  thumbnail.ts            # 썸네일 다운로드 (앨범아트용)
+  process.ts              # child_process.spawn 래퍼 (PATH 보강, CliError에 stdout/stderr 동시 보관)
+  validate.ts             # YouTube URL 유효성 검사 + canonical videoId 추출 (extractVideoId)
+  temp.ts                 # 요청별 job 디렉터리 생성/정리 + 고아 스위퍼 (sweepStaleJobs)
+  thumbnail.ts            # 앨범아트 다운로드 (videoId 기반 URL 구성, 호스트 허용목록, 크기 상한)
+instrumentation.ts        # 서버 기동 시 1회 실행 — temp/ 고아 잔여물 스위핑
 ```
 
 ## Architecture Decisions
@@ -72,12 +73,17 @@ lib/
 - **spawn 사용**: shell injection 방지를 위해 exec 대신 spawn 사용
 - **PATH 보강**: `lib/process.ts`에서 환경별 PATH 자동 추가 (Windows: WinGet 경로, Linux: ~/.deno/bin)
 - **DB 없음**: 개인용이므로 다운로드 이력 미저장
-- **임시 파일**: UUID 기반 생성, 스트림 완료/에러 시 try/finally로 정리
+- **임시 파일 — 요청별 job 디렉터리**: `temp/<uuid>/` 를 **yt-dlp 실행 전에** 생성하고, 성공(스트림 close)·실패(catch) 어느 쪽이든 디렉터리째 삭제. 디렉터리를 먼저 만드는 것이 핵심 — 이전 구조는 `inputPath`가 다운로드 성공 후에야 대입돼 실패 시 정리할 대상을 몰랐고, yt-dlp가 남긴 `.part`·프래그먼트가 영구히 쌓였다(실제로 서버에서 28MB 확인됨). `resolveDownloadedFile`은 `.part`를 제외하며, 파일이 없으면 `NoOutputFileError`를 던진다.
+- **temp 스위퍼**: `instrumentation.ts`가 기동 시 1회, 다운로드 요청 시 기회적으로 6시간 초과 잔여물 삭제. 6시간 기준이라 진행 중인 긴 다운로드는 지워지지 않는다. 과거의 flat 파일 형태 고아도 함께 정리된다.
+- **앨범아트 출처 고정 (SSRF 차단)**: 썸네일 URL은 **서버가 videoId로 직접 구성**한다(`maxresdefault` → `hqdefault` 폴백). 클라이언트가 보낸 URL은 받지 않는다 — 과거에는 요청 본문의 `thumbnail`을 검증 없이 `fetch`해 클라우드 메타데이터나 내부 포트로 요청을 보낼 수 있었다. 추가로 `i.ytimg.com` 허용목록, https 강제, 포트 거부, `redirect: "error"`(리다이렉트로 허용목록을 빠져나가지 못하게), 스트리밍 5MB 상한을 건다. 차단 시 `console.warn`으로 남겨, 허용목록이 좁아 앨범아트가 조용히 사라지는 일을 잡을 수 있다.
+- **canonical videoId 파서**: `lib/validate.ts`의 `extractVideoId`가 `URL` 구조 파싱 + 11자 엄격 검증으로 ID를 뽑는다. 기존 정규식(`(?:v=|youtu\.be\/)([\w-]{11})`)은 `?xv=<11자>&v=<실제ID>` 에서 `xv=` 안의 `v=`를 먼저 잡아 **엉뚱한 ID로 캐시를 오염**시켰다. shorts/embed/live URL도 이제 캐시에 적중한다.
+- **라이브·길이·용량 상한**: `downloadAudio`에 `--break-match-filters "!is_live & duration < 10800"` + `--max-filesize 500M`. `--match-filter`가 아니라 `--break-match-filters`인 이유는 전자가 **거부 시 exit 0에 파일만 없어서** 내부 오류로 둔갑하기 때문(후자는 exit 101). 라이브 URL은 `lib/validate.ts`가 `/live/`를 허용하므로 이 상한이 유일한 방어선이다.
+- **거부 사유 메시지 매핑**: 의도적으로 거부하는 경로(필터·용량)는 사람이 읽을 수 있는 한국어로 바꿔 응답한다. 그 외에는 yt-dlp stderr를 그대로 노출한다. 주의 — yt-dlp는 `does not pass filter` 같은 사유를 **stdout**에 쓰므로 `CliError`가 stdout도 보관한다.
 - **ID3 태그**: ffmpeg로 MP3/M4A/FLAC 변환 시 제목, 아티스트, 앨범아트 자동 삽입
 - **하이브리드 차트**: PL 접두사 차트는 YouTube Data API v3, RDCLAK5uy_ 장르 플레이리스트는 yt-dlp로 분기 처리
 - **서버 캐시**: 차트 데이터는 메모리 Map에 2시간 TTL로 캐시, 영상 info는 10분 TTL로 캐시 (DB 미사용)
 - **429 재시도**: yt-dlp의 모든 호출에 exponential backoff 재시도 적용 (최대 2회, 3초→9초 간격, HTTP 429만 대상)
-- **다운로드 메타데이터 전달**: 클라이언트가 info 조회 시 받은 title/channel/thumbnail을 다운로드 요청에 포함하여 서버 측 중복 info 호출 제거
+- **다운로드 메타데이터 전달**: 클라이언트가 info 조회 시 받은 title/channel을 다운로드 요청에 포함하여 서버 측 중복 info 호출 제거. **thumbnail은 전달하지 않는다** (위 SSRF 항목 참고)
 - **미리듣기**: YouTube IFrame 임베드, 자동 재생 없음. 선택한 트랙 바로 아래 인라인(아코디언)으로 표시 — 재클릭/✕/ESC로 닫힘, 다른 트랙 선택 시 이동, 검색/카테고리 전환 시 자동 닫힘
 - **결과 자동 스크롤**: 차트/검색에서 트랙 선택 시 상단 결과 카드로 부드럽게 스크롤(`scrollIntoView`), 미리듣기는 `block: "nearest"`로 필요할 때만 이동
 - **진행률 2단계**: 서버 처리(추출·변환) 동안은 무한(indeterminate) 표시, 응답 수신 후 파일 전송 구간만 Content-Length 기반 정확한 % 표시 (가짜 타이머 미사용)
@@ -95,14 +101,34 @@ lib/
 - **도메인**: y2vmusic.duckdns.org (DuckDNS 무료 서브도메인)
 
 ### 서버 구성
-- **nginx**: 리버스 프록시 (80/443 → localhost:3000)
+- **nginx**: 리버스 프록시 (80/443 → 127.0.0.1:3000), `proxy_read_timeout 3600s`, `client_max_body_size 0`
 - **certbot**: Let's Encrypt SSL 자동 갱신
 - **PM2**: Next.js 프로세스 관리 (자동 재시작, 시스템 부팅 시 자동 실행)
+  - `fork_mode` 1 인스턴스 — 인메모리 캐시(`chart-cache`, `info-cache`)가 프로세스 로컬이라 이 전제에 의존한다
+  - 기동 명령: `pm2 start bash --name y2vmusic -- -c "npx next start --hostname 127.0.0.1 --port 3000"`
+  - **`--hostname 127.0.0.1` 필수** — `0.0.0.0`으로 띄우면 nginx를 우회해 앱이 직접 노출된다
 - **Swap**: 2GB swap 파일 (`/swapfile`, fstab 등록) — 빌드 시 OOM 방지
 - **deno**: yt-dlp의 YouTube JS 챌린지 해독용 런타임 (~/.deno/bin)
 - **Cloudflare WARP**: yt-dlp 프록시 (socks5://127.0.0.1:40000) — 클라우드 IP 봇 차단 우회
 - **yt-dlp config**: `~/.config/yt-dlp/config` — `--remote-components ejs:github`, `--proxy socks5://127.0.0.1:40000`
+- **yt-dlp 설치**: pip 전역 (`/usr/local/lib/python3.12/dist-packages`). 업데이트: `sudo python3 -m pip install -U --break-system-packages yt-dlp`
 - **환경 변수**: `.env.local` — `YOUTUBE_API_KEY` (YouTube Data API v3 차트 조회용)
+
+### 네트워크 노출 (중요)
+외부에 열린 포트는 **22 / 80 / 443 뿐**이다. 3000은 다음 두 겹으로 막혀 있다.
+
+1. **iptables**: 3000 ACCEPT 규칙 삭제 후 `netfilter-persistent save`로 영구 저장
+2. **바인딩**: Next가 `127.0.0.1:3000`에만 리스닝
+
+두 방어선 모두 유지해야 한다. PM2 프로세스를 재생성할 때 `--hostname` 인자를 빠뜨리면 바인딩 방어선이 사라진다.
+
+```bash
+ss -tlnp | grep 3000                       # 127.0.0.1:3000 이어야 정상
+sudo iptables -S INPUT | grep 3000          # 출력이 없어야 정상
+curl -m 8 http://152.67.198.0:3000/         # 실패해야 정상
+```
+
+> **미완료**: Oracle Cloud 콘솔의 Security List에는 3000 Ingress 규칙이 아직 남아 있다(웹 콘솔에서만 삭제 가능). iptables가 막고 있어 실질 노출은 없지만, 정리하는 편이 좋다.
 
 ### Cloudflare WARP (YouTube 봇 차단 우회)
 - YouTube가 클라우드 IP를 봇으로 차단하므로 Cloudflare WARP를 SOCKS5 프록시로 사용
@@ -146,8 +172,8 @@ pm2 restart y2vmusic
 ### Oracle Cloud 네트워크 설정
 - VCN: y2v-vcn (10.0.0.0/16)
 - Internet Gateway 연결 + Route Table에 0.0.0.0/0 규칙
-- Security List Ingress: 22(SSH), 80(HTTP), 443(HTTPS), 3000(Next.js)
-- OS iptables: 위와 동일 포트 허용, REJECT 규칙 앞에 배치
+- Security List Ingress: 22(SSH), 80(HTTP), 443(HTTPS) — 3000 규칙은 불필요 (위 "네트워크 노출" 참고)
+- OS iptables: 22/80/443 허용, REJECT 규칙 앞에 배치
 
 ## Conventions
 
@@ -156,8 +182,13 @@ pm2 restart y2vmusic
 - API 에러 응답: `{ "error": "메시지" }` 형식
 - 포맷 옵션: MP3 (320/192/128), M4A (256/192/128), OPUS (원본), FLAC
 - 플레이리스트 ID 관리: `lib/playlists.ts`에 집중 (ID 변경 시 이 파일만 수정)
+- 추출 상한: 라이브 불가, 3시간(`MAX_DURATION_SECONDS`), 500MB(`MAX_FILESIZE`) — 값은 `lib/ytdlp.ts`에 집중
+- 로그 접두사: `[temp]`, `[thumbnail]` 처럼 대괄호 접두사를 쓴다 (`pm2 logs y2vmusic | grep '\[temp\]'`)
 
 ## Known Limitations
 
 - **YouTube Music 전용 콘텐츠 미지원**: `music.youtube.com`에서만 재생 가능한 영상(YouTube Music Premium 전용)은 yt-dlp로 추출 불가. YouTube Music Premium 계정 쿠키 + `web_music` 클라이언트가 필요하며, 현재 지원하지 않음.
 - **서버 OOM (해결됨)**: Oracle Cloud 1GB RAM 인스턴스에서 `pnpm build` 시 OOM이 발생했으나, 2GB swap 파일 추가로 해결. 빌드가 느려질 수는 있으나 서버가 죽지는 않음.
+- **WARP 프록시 간헐적 연결 거부 (미해결)**: `warp-cli status`가 `Connected`이고 40000 포트도 리스닝 중이며 `warp-svc` 재시작 이력도 없는데, yt-dlp가 `[Errno 111] Connection refused`로 실패하는 경우가 잦다. 한 세션에서 다운로드 시도 8회 중 4회 실패를 관측했다. WARP이 끊기면 yt-dlp가 서버 실IP로 나가 `Sign in to confirm you're not a bot` 에 걸린다. 사용자에게는 "가끔 실패하고 영어 에러가 뜬다"로 보인다. 재시도하면 대개 성공한다. **원인 미규명 — 별도 조사 필요.**
+- **인증·레이트리밋 없음**: 공개 URL인데 `/api/download`가 누구에게나 열려 있다. nginx basic auth를 적용했다가 사용자 요청으로 되돌렸다(설정 백업: `/etc/nginx/sites-available/y2vmusic.bak.*`). 포트 3000 차단과 localhost 바인딩은 유지되므로 nginx 우회는 불가하지만, 1 OCPU / 1GB 환경에서 동시 요청 보호 장치가 없다. **다음 작업 후보**: 비싼 작업(yt-dlp를 띄우는 전 경로) admission 제어 + `runCli` 작업 데드라인 + 자식 프로세스 그룹 종료. 두 가지는 함께 가야 한다 — 데드라인 없는 세마포어는 한 번 멈추면 영구 데드락이다.
+- **`runCli` 타임아웃 없음**: `lib/process.ts`는 출력 크기 상한만 있고 시간 제한이나 요청 abort 전파가 없다. 브라우저를 닫아도 yt-dlp/ffmpeg는 계속 돈다. `child.kill()`은 직계 자식에게 SIGTERM 한 번뿐이라 yt-dlp가 띄운 deno(115MB)·ffmpeg가 고아로 남을 수 있다.
