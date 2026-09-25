@@ -262,7 +262,6 @@ export default function Home() {
           quality,
           title: info.title,
           channel: info.channel,
-          thumbnail: info.thumbnail,
         }),
       });
 

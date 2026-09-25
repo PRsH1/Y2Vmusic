@@ -9,8 +9,11 @@ import {
   createTempPath,
   resolveDownloadedFile,
 } from "@/lib/temp";
-import { downloadThumbnail } from "@/lib/thumbnail";
-import { isValidYouTubeUrl } from "@/lib/validate";
+import {
+  buildThumbnailCandidates,
+  downloadFirstThumbnail,
+} from "@/lib/thumbnail";
+import { extractVideoId, isValidYouTubeUrl } from "@/lib/validate";
 import { downloadAudio, getVideoInfo } from "@/lib/ytdlp";
 
 export const runtime = "nodejs";
@@ -25,13 +28,11 @@ type DownloadRequest = {
   quality?: unknown;
   title?: unknown;
   channel?: unknown;
-  thumbnail?: unknown;
 };
 
 type DownloadInfo = {
   title: string;
   channel: string;
-  thumbnail: string | null;
 };
 
 const AUDIO_FORMATS = new Set<AudioFormat>(["mp3", "m4a", "opus", "flac"]);
@@ -122,20 +123,14 @@ function getContentType(ext: string): string {
   return "application/octet-stream";
 }
 
-function extractVideoId(url: string): string | null {
-  const match = url.match(/(?:v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
-  return match?.[1] ?? null;
-}
-
 async function getDownloadInfo(
   url: string,
+  videoId: string | null,
   provided: DownloadInfo | null,
 ): Promise<DownloadInfo> {
   if (provided) {
     return provided;
   }
-
-  const videoId = extractVideoId(url);
 
   if (videoId) {
     const cached = getCachedInfo(videoId);
@@ -144,7 +139,6 @@ async function getDownloadInfo(
       return {
         title: cached.title,
         channel: cached.channel,
-        thumbnail: cached.thumbnail,
       };
     }
   }
@@ -158,7 +152,6 @@ async function getDownloadInfo(
   return {
     title: info.title,
     channel: info.channel,
-    thumbnail: info.thumbnail,
   };
 }
 
@@ -180,8 +173,6 @@ export async function POST(request: Request) {
     const quality = isQuality(body.quality) ? body.quality : "best";
     const title = typeof body.title === "string" ? body.title.trim() : "";
     const channel = typeof body.channel === "string" ? body.channel.trim() : "";
-    const thumbnail =
-      typeof body.thumbnail === "string" ? body.thumbnail.trim() : "";
 
     if (!isValidYouTubeUrl(url)) {
       return jsonError("지원하는 YouTube 영상 URL을 입력하세요.", 400);
@@ -191,15 +182,11 @@ export async function POST(request: Request) {
       return jsonError("지원하는 오디오 포맷을 선택하세요.", 400);
     }
 
+    const videoId = extractVideoId(url);
     const info = await getDownloadInfo(
       url,
-      title && channel
-        ? {
-            title,
-            channel,
-            thumbnail: thumbnail || null,
-          }
-        : null,
+      videoId,
+      title && channel ? { title, channel } : null,
     );
     const templatePath = createTempPath("%(ext)s");
 
@@ -209,9 +196,11 @@ export async function POST(request: Request) {
     let responsePath = inputPath;
 
     if (format !== "opus") {
-      // Download thumbnail for album art embedding
-      if (info.thumbnail) {
-        thumbnailPath = await downloadThumbnail(info.thumbnail);
+      // Album art comes from a server-built URL, never from the request body.
+      if (videoId) {
+        thumbnailPath = await downloadFirstThumbnail(
+          buildThumbnailCandidates(videoId),
+        );
       }
 
       outputPath = createTempPath(format);

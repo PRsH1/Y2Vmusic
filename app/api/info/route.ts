@@ -1,6 +1,6 @@
 import { getCliErrorMessage } from "@/lib/process";
 import { getCachedInfo, setCachedInfo } from "@/lib/info-cache";
-import { isValidYouTubeUrl } from "@/lib/validate";
+import { extractVideoId, isValidYouTubeUrl } from "@/lib/validate";
 import { getVideoInfo } from "@/lib/ytdlp";
 
 export const runtime = "nodejs";
@@ -21,11 +21,6 @@ function jsonError(message: string, status: number) {
       },
     },
   );
-}
-
-function extractVideoId(url: string): string | null {
-  const match = url.match(/(?:v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
-  return match?.[1] ?? null;
 }
 
 export async function POST(request: Request) {

@@ -8,3 +8,5 @@ temp
 *.tsbuildinfo
 screenshot-*.png
 *.bat
+.gstack/
+.context
