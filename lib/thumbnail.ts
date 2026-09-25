@@ -85,7 +85,10 @@ async function readCapped(response: Response): Promise<Buffer | null> {
  * exceeds the size cap. Rejections are logged so a too-strict allowlist shows
  * up in the logs instead of silently shipping audio without cover art.
  */
-export async function downloadThumbnail(url: string): Promise<string | null> {
+export async function downloadThumbnail(
+  jobDir: string,
+  url: string,
+): Promise<string | null> {
   if (!isAllowedThumbnailUrl(url)) {
     console.warn(`[thumbnail] rejected non-allowlisted URL: ${url}`);
     return null;
@@ -108,7 +111,7 @@ export async function downloadThumbnail(url: string): Promise<string | null> {
       return null;
     }
 
-    const tempPath = createTempPath("jpg");
+    const tempPath = createTempPath(jobDir, "jpg");
     await writeFile(tempPath, buffer);
     return tempPath;
   } catch (error) {
@@ -125,10 +128,11 @@ export async function downloadThumbnail(url: string): Promise<string | null> {
  * Tries each candidate in order and returns the first one that downloads.
  */
 export async function downloadFirstThumbnail(
+  jobDir: string,
   urls: string[],
 ): Promise<string | null> {
   for (const url of urls) {
-    const tempPath = await downloadThumbnail(url);
+    const tempPath = await downloadThumbnail(jobDir, url);
 
     if (tempPath) {
       return tempPath;

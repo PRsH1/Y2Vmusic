@@ -241,6 +241,23 @@ export async function fetchPlaylistFromYtDlp(
   return mapTracks(parseJsonLines(stdout));
 }
 
+export const MAX_DURATION_SECONDS = 3 * 60 * 60;
+export const MAX_FILESIZE = "500M";
+
+/**
+ * True when yt-dlp refused the video because of the live/duration filter.
+ *
+ * `--break-match-filters` is used rather than `--match-filter` on purpose:
+ * plain `--match-filter` skips the video and still exits 0, leaving no file
+ * and no way to tell a rejection apart from a silent failure.
+ */
+export function isFilterRejection(error: unknown): boolean {
+  return (
+    error instanceof CliError &&
+    (error.stderr?.includes("does not pass filter") ?? false)
+  );
+}
+
 export async function downloadAudio(
   url: string,
   outputPath: string,
@@ -253,6 +270,10 @@ export async function downloadAudio(
         "bestaudio/bestaudio*/best",
         "--no-playlist",
         "--no-progress",
+        "--break-match-filters",
+        `!is_live & duration < ${MAX_DURATION_SECONDS}`,
+        "--max-filesize",
+        MAX_FILESIZE,
         "-o",
         outputPath,
         url,

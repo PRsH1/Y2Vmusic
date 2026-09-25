@@ -5,16 +5,24 @@ import { convert, type AudioFormat } from "@/lib/ffmpeg";
 import { getCachedInfo, setCachedInfo } from "@/lib/info-cache";
 import { getCliErrorMessage } from "@/lib/process";
 import {
-  cleanupMany,
+  cleanupJob,
+  createJobDir,
   createTempPath,
+  NoOutputFileError,
   resolveDownloadedFile,
+  sweepStaleJobs,
 } from "@/lib/temp";
 import {
   buildThumbnailCandidates,
   downloadFirstThumbnail,
 } from "@/lib/thumbnail";
 import { extractVideoId, isValidYouTubeUrl } from "@/lib/validate";
-import { downloadAudio, getVideoInfo } from "@/lib/ytdlp";
+import {
+  downloadAudio,
+  getVideoInfo,
+  isFilterRejection,
+  MAX_FILESIZE,
+} from "@/lib/ytdlp";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -123,6 +131,23 @@ function getContentType(ext: string): string {
   return "application/octet-stream";
 }
 
+/**
+ * Maps a failed extraction to something a listener can act on. yt-dlp's raw
+ * stderr is kept as the fallback, but the paths we deliberately refuse get a
+ * plain explanation instead.
+ */
+function toUserMessage(error: unknown): string {
+  if (isFilterRejection(error)) {
+    return "라이브 방송이거나 3시간을 넘는 영상은 추출할 수 없습니다.";
+  }
+
+  if (error instanceof NoOutputFileError) {
+    return `추출된 파일이 없습니다. 파일이 최대 크기(${MAX_FILESIZE})를 넘었을 수 있습니다.`;
+  }
+
+  return `다운로드를 처리하지 못했습니다. ${getCliErrorMessage(error)}`;
+}
+
 async function getDownloadInfo(
   url: string,
   videoId: string | null,
@@ -156,9 +181,7 @@ async function getDownloadInfo(
 }
 
 export async function POST(request: Request) {
-  let inputPath: string | undefined;
-  let outputPath: string | undefined;
-  let thumbnailPath: string | null = null;
+  let jobDir: string | undefined;
   let body: DownloadRequest;
 
   try {
@@ -188,22 +211,31 @@ export async function POST(request: Request) {
       videoId,
       title && channel ? { title, channel } : null,
     );
-    const templatePath = createTempPath("%(ext)s");
+    // Clears anything a crashed process left behind; a restart is not
+    // guaranteed to happen between long-lived downloads.
+    const swept = sweepStaleJobs();
+
+    if (swept > 0) {
+      console.info(`[temp] swept ${swept} stale job(s)`);
+    }
+
+    // The job directory is created before yt-dlp runs so a failed download
+    // still has its partial files cleaned up in the catch below.
+    jobDir = createJobDir();
+    const templatePath = path.join(jobDir, "source.%(ext)s");
 
     await downloadAudio(url, templatePath);
-    inputPath = resolveDownloadedFile(templatePath);
+    const inputPath = resolveDownloadedFile(templatePath);
 
     let responsePath = inputPath;
 
     if (format !== "opus") {
       // Album art comes from a server-built URL, never from the request body.
-      if (videoId) {
-        thumbnailPath = await downloadFirstThumbnail(
-          buildThumbnailCandidates(videoId),
-        );
-      }
+      const thumbnailPath = videoId
+        ? await downloadFirstThumbnail(jobDir, buildThumbnailCandidates(videoId))
+        : null;
 
-      outputPath = createTempPath(format);
+      const outputPath = createTempPath(jobDir, format);
       await convert(inputPath, outputPath, {
         format,
         bitrate: getBitrate(format, quality),
@@ -223,6 +255,7 @@ export async function POST(request: Request) {
     const fileName = `${sanitizeFileName(info.title)}.${responseExt}`;
     const stats = statSync(responsePath);
     const nodeStream = createReadStream(responsePath);
+    const finishedJobDir = jobDir;
     let cleaned = false;
 
     const cleanup = () => {
@@ -231,7 +264,7 @@ export async function POST(request: Request) {
       }
 
       cleaned = true;
-      cleanupMany([inputPath, outputPath, thumbnailPath]);
+      cleanupJob(finishedJobDir);
     };
 
     nodeStream.on("close", cleanup);
@@ -246,7 +279,7 @@ export async function POST(request: Request) {
       },
     });
   } catch (error) {
-    cleanupMany([inputPath, outputPath, thumbnailPath]);
-    return jsonError(`다운로드를 처리하지 못했습니다. ${getCliErrorMessage(error)}`, 500);
+    cleanupJob(jobDir);
+    return jsonError(toUserMessage(error), 500);
   }
 }
