@@ -13,6 +13,12 @@ import {
 import { GuideModal } from "@/components/guide-modal";
 import { UrlInput } from "@/components/url-input";
 import { VideoInfoCard } from "@/components/video-info";
+import {
+  readFormat,
+  readQuality,
+  writeFormat,
+  writeQuality,
+} from "@/lib/prefs";
 import type { VideoInfo } from "@/lib/ytdlp";
 
 type AppStatus = "idle" | "loading-info" | "ready" | "downloading" | "error";
@@ -254,6 +260,31 @@ export default function Home() {
     const currentTheme = document.documentElement.getAttribute("data-theme");
     setTheme(currentTheme === "dark" ? "dark" : "light");
   }, []);
+
+  // Read after mount so the server-rendered markup and the first client render
+  // agree; localStorage does not exist during SSR.
+  useEffect(() => {
+    const storedFormat = readFormat();
+    const storedQuality = readQuality();
+
+    if (storedFormat) {
+      setFormat(storedFormat);
+    }
+
+    if (storedQuality) {
+      setQuality(storedQuality);
+    }
+  }, []);
+
+  function chooseFormat(next: AudioFormatChoice) {
+    setFormat(next);
+    writeFormat(next);
+  }
+
+  function chooseQuality(next: QualityChoice) {
+    setQuality(next);
+    writeQuality(next);
+  }
 
   async function loadInfo(overrideUrl?: string) {
     const targetUrl = overrideUrl ?? url;
@@ -531,8 +562,8 @@ export default function Home() {
           <FormatSelector
             disabled={isBusy}
             format={format}
-            onFormatChange={setFormat}
-            onQualityChange={setQuality}
+            onFormatChange={chooseFormat}
+            onQualityChange={chooseQuality}
             quality={quality}
           />
           <section className="grid gap-4 rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] p-4 md:grid-cols-[1fr_auto] md:items-center">
@@ -567,8 +598,8 @@ export default function Home() {
               loading={status === "loading-info"}
               onClose={closeDownloadPanel}
               onDownload={download}
-              onFormatChange={setFormat}
-              onQualityChange={setQuality}
+              onFormatChange={chooseFormat}
+              onQualityChange={chooseQuality}
               onRetry={retry}
               quality={quality}
             />
