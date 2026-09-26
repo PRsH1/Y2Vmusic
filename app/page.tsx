@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DownloadButton } from "@/components/download-button";
+import { DownloadPanel } from "@/components/download-panel";
+import { DownloadStatusBar } from "@/components/download-status-bar";
 import { ExploreSection } from "@/components/explore/explore-section";
 import {
   FormatSelector,
@@ -9,7 +11,6 @@ import {
   type QualityChoice,
 } from "@/components/format-selector";
 import { GuideModal } from "@/components/guide-modal";
-import { ProgressBar } from "@/components/progress-bar";
 import { UrlInput } from "@/components/url-input";
 import { VideoInfoCard } from "@/components/video-info";
 import type { VideoInfo } from "@/lib/ytdlp";
@@ -171,12 +172,19 @@ export default function Home() {
     null,
   );
   const [theme, setTheme] = useState<Theme>("light");
+  // Set when the track came from the explore list, so the download controls
+  // render inline under that track instead of in the card at the top.
+  const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null);
+  // The url the loaded `info` describes. Editing the input past this point
+  // must not let a download go out with the previous track's metadata.
+  const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
   const downloadCompleteTimerRef = useRef<number | null>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
   const shouldScrollToResultRef = useRef(false);
 
   const isBusy = status === "loading-info" || status === "downloading";
-  const canDownload = info !== null && !isBusy;
+  const canDownload =
+    info !== null && !isBusy && loadedUrl !== null && loadedUrl === url.trim();
 
   const stateLabel = useMemo(() => {
     if (status === "loading-info") {
@@ -253,6 +261,7 @@ export default function Home() {
     setStatus("loading-info");
     setError(null);
     setInfo(null);
+    setLoadedUrl(null);
     clearLastDownload();
     setProgress(0);
     setProgressIndeterminate(false);
@@ -273,6 +282,7 @@ export default function Home() {
 
       const videoInfo = (await response.json()) as VideoInfo;
       setInfo(videoInfo);
+      setLoadedUrl(targetUrl.trim());
       setStatus("ready");
     } catch (loadError) {
       setStatus("error");
@@ -283,8 +293,39 @@ export default function Home() {
   function handleTrackSelect(videoId: string) {
     const trackUrl = `https://www.youtube.com/watch?v=${videoId}`;
     setUrl(trackUrl);
-    shouldScrollToResultRef.current = true;
+    // The panel opens under this track; TrackList brings it into view without
+    // pulling the reader away from the list.
+    setSelectedVideoId(videoId);
     void loadInfo(trackUrl);
+  }
+
+  function handleUrlSubmit() {
+    // A typed url is handled by the card at the top, not the inline panel.
+    setSelectedVideoId(null);
+    shouldScrollToResultRef.current = true;
+    void loadInfo();
+  }
+
+  /**
+   * One click to re-run whatever just failed. The WARP proxy this server
+   * depends on fails intermittently, and a retry usually succeeds, so making
+   * the user re-pick a format first was pure friction.
+   */
+  function retry() {
+    if (info && loadedUrl) {
+      void download();
+      return;
+    }
+
+    void loadInfo(url);
+  }
+
+  function closeDownloadPanel() {
+    setSelectedVideoId(null);
+    setInfo(null);
+    setLoadedUrl(null);
+    setError(null);
+    setStatus("idle");
   }
 
   function toggleTheme() {
@@ -417,7 +458,7 @@ export default function Home() {
   }
 
   return (
-    <main className="mx-auto grid min-h-screen w-full max-w-5xl content-start gap-6 px-4 py-8 sm:px-6 lg:px-8">
+    <main className="mx-auto grid min-h-screen w-full max-w-5xl content-start gap-6 px-4 pb-32 pt-8 sm:px-6 lg:px-8">
       <header className="grid gap-2 border-b border-[color:var(--border)] pb-5">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div className="grid gap-1">
@@ -461,23 +502,30 @@ export default function Home() {
         <UrlInput
           disabled={isBusy}
           onChange={setUrl}
-          onSubmit={loadInfo}
+          onSubmit={handleUrlSubmit}
           value={url}
         />
-        {status === "loading-info" ? (
+        {status === "loading-info" && !selectedVideoId ? (
           <div className="flex items-center gap-3 text-sm text-[color:var(--muted)]">
             <span className="h-4 w-4 animate-spin rounded-full border-2 border-[color:var(--spinner-border)] border-t-[color:var(--accent)]" />
             영상 정보를 불러오는 중
           </div>
         ) : null}
-        {error ? (
-          <div className="rounded-md border border-[color:var(--danger-border)] bg-[color:var(--danger-soft)] px-4 py-3 text-sm text-[color:var(--danger-text)]">
-            {error}
+        {error && !selectedVideoId ? (
+          <div className="grid gap-2 rounded-md border border-[color:var(--danger-border)] bg-[color:var(--danger-soft)] px-4 py-3 text-sm text-[color:var(--danger-text)]">
+            <span className="break-words">{error}</span>
+            <button
+              className="justify-self-start rounded-md border border-[color:var(--danger-border)] bg-[color:var(--surface)] px-3 py-1 text-xs font-bold text-[color:var(--danger-text)] transition-colors hover:bg-[color:var(--danger-soft)]"
+              onClick={retry}
+              type="button"
+            >
+              다시 시도
+            </button>
           </div>
         ) : null}
       </section>
 
-      {info ? (
+      {info && !selectedVideoId ? (
         <div className="grid gap-6" ref={resultsRef}>
           <VideoInfoCard info={info} />
           <FormatSelector
@@ -503,38 +551,41 @@ export default function Home() {
               downloading={status === "downloading"}
               onClick={download}
             />
-            {lastDownload ? (
-              <div className="flex items-start justify-between gap-3 rounded-md border border-[color:var(--accent)] bg-[color:var(--accent-soft)] px-4 py-3 text-sm text-[color:var(--accent-strong)] md:col-span-2">
-                <span className="min-w-0 break-words">
-                  ✓ {lastDownload.fileName} 저장 완료 · 브라우저 다운로드 폴더를
-                  확인하세요
-                </span>
-                <button
-                  aria-label="완료 알림 닫기"
-                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[color:var(--accent)] bg-[color:var(--surface)] text-xs font-bold text-[color:var(--accent-strong)] transition-colors hover:bg-[color:var(--accent-soft-hover)]"
-                  onClick={clearLastDownload}
-                  type="button"
-                >
-                  ✕
-                </button>
-              </div>
-            ) : null}
-            {status === "downloading" ? (
-              <div className="md:col-span-2">
-                <ProgressBar
-                  indeterminate={progressIndeterminate}
-                  label={progressLabel}
-                  value={progress}
-                />
-              </div>
-            ) : null}
           </section>
         </div>
       ) : null}
 
       <ExploreSection
         disabled={isBusy}
+        downloadPanel={
+          selectedVideoId ? (
+            <DownloadPanel
+              busy={isBusy}
+              error={error}
+              format={format}
+              info={info}
+              loading={status === "loading-info"}
+              onClose={closeDownloadPanel}
+              onDownload={download}
+              onFormatChange={setFormat}
+              onQualityChange={setQuality}
+              onRetry={retry}
+              quality={quality}
+            />
+          ) : null
+        }
         onTrackSelect={handleTrackSelect}
+        selectedVideoId={selectedVideoId}
+      />
+
+      <DownloadStatusBar
+        downloading={status === "downloading"}
+        indeterminate={progressIndeterminate}
+        label={progressLabel}
+        onDismiss={clearLastDownload}
+        progress={progress}
+        savedFileName={lastDownload?.fileName ?? null}
+        trackTitle={info?.title ?? null}
       />
     </main>
   );

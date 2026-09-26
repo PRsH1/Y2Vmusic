@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { CategoryPills } from "@/components/explore/category-pills";
 import { SearchBar } from "@/components/explore/search-bar";
 import { TrackList } from "@/components/explore/track-list";
@@ -10,6 +10,9 @@ import type { ChartTrack } from "@/lib/youtube-api";
 type ExploreSectionProps = {
   disabled: boolean;
   onTrackSelect: (videoId: string) => void;
+  /** Rendered inline under the selected track, in the preview slot. */
+  downloadPanel?: ReactNode;
+  selectedVideoId?: string | null;
 };
 
 type ExploreMode = "chart" | "search";
@@ -58,6 +61,8 @@ async function fetchWithTimeout(
 export function ExploreSection({
   disabled,
   onTrackSelect,
+  downloadPanel,
+  selectedVideoId,
 }: ExploreSectionProps) {
   const [activePlaylist, setActivePlaylist] = useState(PLAYLISTS[0]?.id ?? "");
   const [tracks, setTracks] = useState<ChartTrack[]>([]);
@@ -195,11 +200,13 @@ export function ExploreSection({
         </p>
       ) : (
         <TrackList
+          downloadPanel={downloadPanel}
           onTrackSelect={(videoId) => {
             if (!disabled) {
               onTrackSelect(videoId);
             }
           }}
+          selectedVideoId={selectedVideoId}
           showRank={mode === "chart"}
           tracks={tracks}
         />

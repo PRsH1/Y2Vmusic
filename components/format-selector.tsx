@@ -9,6 +9,12 @@ type FormatSelectorProps = {
   disabled: boolean;
   onFormatChange: (format: AudioFormatChoice) => void;
   onQualityChange: (quality: QualityChoice) => void;
+  /**
+   * "compact" renders the same options as a single row of pills, for the
+   * panel that opens inline under a track. The option lists stay shared so
+   * the two layouts can never drift apart.
+   */
+  variant?: "full" | "compact";
 };
 
 const FORMAT_OPTIONS: Array<{
@@ -18,9 +24,16 @@ const FORMAT_OPTIONS: Array<{
 }> = [
   { value: "mp3", label: "MP3", detail: "320 / 192 / 128kbps" },
   { value: "m4a", label: "M4A", detail: "AAC 변환" },
-  { value: "opus", label: "OPUS", detail: "원본 스트림" },
+  { value: "opus", label: "OPUS", detail: "원본 무변환" },
   { value: "flac", label: "FLAC", detail: "무손실 컨테이너" },
 ];
+
+/** Shown when the chosen format cannot improve on a lossy source. */
+export const FLAC_NOTE =
+  "YouTube 원본이 손실 압축이라 FLAC으로 바꿔도 음질은 그대로이고 용량만 커집니다.";
+
+export const OPUS_NOTE =
+  "변환 없이 받습니다. YouTube가 주는 스트림에 따라 확장자가 달라질 수 있습니다.";
 
 const QUALITY_OPTIONS: Array<{
   value: QualityChoice;
@@ -32,14 +45,91 @@ const QUALITY_OPTIONS: Array<{
   { value: "medium", label: "보통", detail: "128kbps" },
 ];
 
+function pillClass(selected: boolean, disabled: boolean): string {
+  return [
+    "rounded-full border px-3 py-1 text-xs font-bold transition-colors",
+    selected
+      ? "border-[color:var(--accent)] bg-[color:var(--accent-soft)] text-[color:var(--accent-strong)]"
+      : "border-[color:var(--border)] bg-[color:var(--surface-raised)] text-[color:var(--muted)]",
+    disabled
+      ? "cursor-not-allowed opacity-50"
+      : "cursor-pointer hover:border-[color:var(--control-hover)]",
+  ].join(" ");
+}
+
+function CompactSelector({
+  format,
+  quality,
+  disabled,
+  onFormatChange,
+  onQualityChange,
+}: Omit<FormatSelectorProps, "variant">) {
+  const qualityDisabled = disabled || format === "opus" || format === "flac";
+
+  return (
+    <div className="grid gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-[color:var(--muted)]">포맷</span>
+        {FORMAT_OPTIONS.map((option) => (
+          <button
+            aria-pressed={format === option.value}
+            className={pillClass(format === option.value, disabled)}
+            disabled={disabled}
+            key={option.value}
+            onClick={() => onFormatChange(option.value)}
+            type="button"
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-[color:var(--muted)]">품질</span>
+        {QUALITY_OPTIONS.map((option) => (
+          <button
+            aria-pressed={quality === option.value}
+            className={pillClass(quality === option.value, qualityDisabled)}
+            disabled={qualityDisabled}
+            key={option.value}
+            onClick={() => onQualityChange(option.value)}
+            type="button"
+          >
+            {option.label}
+          </button>
+        ))}
+        {/* Only the format can make quality meaningless. Being mid-download
+            disables the pills too, but that is not a reason to say so. */}
+        {format === "opus" || format === "flac" ? (
+          <span className="text-xs text-[color:var(--muted)]">
+            {format === "opus" ? "원본 그대로" : "품질 옵션 없음"}
+          </span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 export function FormatSelector({
   format,
   quality,
   disabled,
   onFormatChange,
   onQualityChange,
+  variant = "full",
 }: FormatSelectorProps) {
   const qualityDisabled = disabled || format === "opus" || format === "flac";
+
+  if (variant === "compact") {
+    return (
+      <CompactSelector
+        disabled={disabled}
+        format={format}
+        onFormatChange={onFormatChange}
+        onQualityChange={onQualityChange}
+        quality={quality}
+      />
+    );
+  }
 
   return (
     <section className="grid gap-5 rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] p-4">

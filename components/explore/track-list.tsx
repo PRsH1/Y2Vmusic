@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { TrackItem } from "@/components/explore/track-item";
 import { PreviewPlayer } from "@/components/preview-player";
 import type { ChartTrack } from "@/lib/youtube-api";
@@ -9,6 +9,9 @@ type TrackListProps = {
   onTrackSelect: (videoId: string) => void;
   showRank?: boolean;
   tracks: ChartTrack[];
+  /** Rendered under the selected track so the action stays where it began. */
+  downloadPanel?: ReactNode;
+  selectedVideoId?: string | null;
 };
 
 const PAGE_SIZE = 20;
@@ -17,11 +20,34 @@ export function TrackList({
   onTrackSelect,
   showRank = false,
   tracks,
+  downloadPanel,
+  selectedVideoId,
 }: TrackListProps) {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const previewRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const visibleTracks = tracks.slice(0, visibleCount);
+  // Only the first occurrence gets the panel; a list can repeat a video id.
+  const panelIndex = selectedVideoId
+    ? visibleTracks.findIndex((track) => track.videoId === selectedVideoId)
+    : -1;
+
+  useEffect(() => {
+    if (panelIndex < 0) {
+      return;
+    }
+
+    const behavior: ScrollBehavior = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches
+      ? "auto"
+      : "smooth";
+
+    // "nearest" keeps the surrounding tracks on screen — the whole point of
+    // moving the panel here instead of jumping to the top of the page.
+    panelRef.current?.scrollIntoView({ behavior, block: "nearest" });
+  }, [panelIndex]);
 
   useEffect(() => {
     setActiveIndex(null);
@@ -80,6 +106,14 @@ export function TrackList({
                   title={track.title}
                   videoId={track.videoId}
                 />
+              </div>
+            ) : null}
+            {index === panelIndex && downloadPanel ? (
+              <div
+                className="border-b border-[color:var(--border)] px-2 py-3"
+                ref={panelRef}
+              >
+                {downloadPanel}
               </div>
             ) : null}
           </Fragment>

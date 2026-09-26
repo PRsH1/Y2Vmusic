@@ -20,7 +20,8 @@ function formatDuration(seconds: number | null): string {
   return parts.map((part) => String(part).padStart(2, "0")).join(":");
 }
 
-function formatSource(info: VideoInfo): string {
+/** Also used by the inline download panel, which shows the same line. */
+export function formatSource(info: VideoInfo): string {
   const source = info.formats[0];
 
   if (!source) {
