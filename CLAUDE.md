@@ -256,3 +256,12 @@ pm2 restart y2vmusic
 - **`RDCLAK5uy_` ID의 수명**: YouTube Music이 자동 생성하는 믹스 ID라 예고 없이 사라지거나 조용히 다른 성격으로 바뀔 수 있다. 사라지면 해당 탭이 오류가 된다(만료 캐시로 24시간은 버틴다). `pnpm check:playlists`로 확인하되 **자동 실행은 없다** — 정기적으로 돌리는 것은 사람 몫이다.
 - **곡 수 상한 비대칭**: `lib/youtube-api.ts`는 100곡에서 자르고(`while (tracks.length < 100)`) yt-dlp 소스는 자르지 않는다. 그래서 OST는 135곡, 트로트는 103곡이 나온다. 의도된 것인지 확인되지 않았다.
 - **검색 결과 20개 고정**: `ytsearch20:`이고 "더 보기"가 없다. 사용자 요청으로 보류.
+
+# use mcp
+
+## 필요할때 다음 mcp 를 호출할 것
+context7
+brave-search
+filesystem
+github
+tavily
