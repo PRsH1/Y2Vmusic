@@ -1,6 +1,16 @@
 import { CliError, runCli } from "@/lib/process";
 import type { ChartTrack } from "@/lib/youtube-api";
 
+/**
+ * Wall-clock budgets. Metadata lookups are network-bound and should never take
+ * this long; the download budget has to cover a 3-hour track on one core.
+ * A timeout is not retried — `withRetry` only retries HTTP 429 — so these are
+ * per-command, not per-attempt totals.
+ */
+const METADATA_TIMEOUT_MS = 90_000;
+const PLAYLIST_TIMEOUT_MS = 120_000;
+const DOWNLOAD_TIMEOUT_MS = 15 * 60_000;
+
 export type AudioStreamInfo = {
   id: string;
   codec: string;
@@ -187,6 +197,7 @@ export async function getVideoInfo(url: string): Promise<VideoInfo> {
       ["--dump-json", "--no-playlist", url],
       {
         maxStdoutBytes: 64 * 1024 * 1024,
+        timeoutMs: METADATA_TIMEOUT_MS,
       },
     ),
   );
@@ -209,6 +220,7 @@ export async function searchYouTube(query: string): Promise<ChartTrack[]> {
       ["ytsearch20:" + query, "--dump-json", "--flat-playlist", "--no-download"],
       {
         maxStdoutBytes: 8 * 1024 * 1024,
+        timeoutMs: METADATA_TIMEOUT_MS,
       },
     ),
   );
@@ -234,6 +246,7 @@ export async function fetchPlaylistFromYtDlp(
       ],
       {
         maxStdoutBytes: 16 * 1024 * 1024,
+        timeoutMs: PLAYLIST_TIMEOUT_MS,
       },
     ),
   );
@@ -289,6 +302,7 @@ export async function downloadAudio(
       {
         maxStdoutBytes: 8 * 1024 * 1024,
         maxStderrBytes: 8 * 1024 * 1024,
+        timeoutMs: DOWNLOAD_TIMEOUT_MS,
       },
     ),
   );

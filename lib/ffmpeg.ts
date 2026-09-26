@@ -1,6 +1,9 @@
 import { copyFile } from "node:fs/promises";
 import { runCli } from "@/lib/process";
 
+/** Conversion budget. A 3-hour FLAC on one core is the worst legitimate case. */
+const CONVERT_TIMEOUT_MS = 15 * 60_000;
+
 export type AudioFormat = "mp3" | "m4a" | "opus" | "flac";
 
 export type ConvertOptions = {
@@ -112,5 +115,6 @@ export async function convert(
   await runCli("ffmpeg", args, {
     maxStdoutBytes: 1024 * 1024,
     maxStderrBytes: 8 * 1024 * 1024,
+    timeoutMs: CONVERT_TIMEOUT_MS,
   });
 }

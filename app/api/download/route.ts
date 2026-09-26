@@ -1,6 +1,11 @@
 import { createReadStream, statSync } from "node:fs";
 import path from "node:path";
 import { Readable } from "node:stream";
+import {
+  BusyError,
+  downloadAdmission,
+  type Slot,
+} from "@/lib/admission";
 import { convert, type AudioFormat } from "@/lib/ffmpeg";
 import { getCachedInfo, setCachedInfo } from "@/lib/info-cache";
 import { getCliErrorMessage } from "@/lib/process";
@@ -182,6 +187,7 @@ async function getDownloadInfo(
 
 export async function POST(request: Request) {
   let jobDir: string | undefined;
+  let slot: Slot | undefined;
   let body: DownloadRequest;
 
   try {
@@ -204,6 +210,11 @@ export async function POST(request: Request) {
     if (!format) {
       return jsonError("지원하는 오디오 포맷을 선택하세요.", 400);
     }
+
+    // Held only until the file exists. Transfer is cheap and a slow client
+    // must not keep the next extraction waiting, so the slot is released
+    // before the streaming response is returned.
+    slot = await downloadAdmission.acquire();
 
     const videoId = extractVideoId(url);
     const info = await getDownloadInfo(
@@ -280,6 +291,22 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     cleanupJob(jobDir);
+
+    if (error instanceof BusyError) {
+      return Response.json(
+        { error: error.message },
+        {
+          status: 503,
+          headers: {
+            "Cache-Control": "no-store",
+            "Retry-After": String(error.retryAfterSeconds),
+          },
+        },
+      );
+    }
+
     return jsonError(toUserMessage(error), 500);
+  } finally {
+    slot?.release();
   }
 }

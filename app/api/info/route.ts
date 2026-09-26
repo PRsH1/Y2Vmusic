@@ -1,3 +1,4 @@
+import { BusyError, metadataAdmission } from "@/lib/admission";
 import { getCliErrorMessage } from "@/lib/process";
 import { getCachedInfo, setCachedInfo } from "@/lib/info-cache";
 import { extractVideoId, isValidYouTubeUrl } from "@/lib/validate";
@@ -18,6 +19,19 @@ function jsonError(message: string, status: number) {
       status,
       headers: {
         "Cache-Control": "no-store",
+      },
+    },
+  );
+}
+
+function busyResponse(error: BusyError) {
+  return Response.json(
+    { error: error.message },
+    {
+      status: 503,
+      headers: {
+        "Cache-Control": "no-store",
+        "Retry-After": String(error.retryAfterSeconds),
       },
     },
   );
@@ -53,7 +67,8 @@ export async function POST(request: Request) {
       }
     }
 
-    const info = await getVideoInfo(url);
+    // Only a cache miss reaches yt-dlp, so hits never queue behind a lookup.
+    const info = await metadataAdmission.run(() => getVideoInfo(url));
 
     if (videoId) {
       setCachedInfo(videoId, info);
@@ -65,6 +80,10 @@ export async function POST(request: Request) {
       },
     });
   } catch (error) {
+    if (error instanceof BusyError) {
+      return busyResponse(error);
+    }
+
     return jsonError(`영상 정보를 가져오지 못했습니다. ${getCliErrorMessage(error)}`, 500);
   }
 }

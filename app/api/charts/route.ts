@@ -1,3 +1,4 @@
+import { BusyError, metadataAdmission } from "@/lib/admission";
 import { getCached, setCache } from "@/lib/chart-cache";
 import { getPlaylist, isAllowedPlaylist } from "@/lib/playlists";
 import { getCliErrorMessage } from "@/lib/process";
@@ -51,10 +52,12 @@ export async function GET(request: Request) {
   }
 
   try {
+    // The API source is a plain HTTPS call to googleapis and costs this box
+    // nothing, so only the yt-dlp source takes a slot.
     const tracks =
       playlist.source === "youtube-api"
         ? await fetchPlaylistFromApi(playlistId)
-        : await fetchPlaylistFromYtDlp(playlistId);
+        : await metadataAdmission.run(() => fetchPlaylistFromYtDlp(playlistId));
 
     setCache(playlistId, tracks);
 
@@ -70,6 +73,19 @@ export async function GET(request: Request) {
       },
     );
   } catch (error) {
+    if (error instanceof BusyError) {
+      return Response.json(
+        { error: error.message },
+        {
+          status: 503,
+          headers: {
+            "Cache-Control": "no-store",
+            "Retry-After": String(error.retryAfterSeconds),
+          },
+        },
+      );
+    }
+
     return jsonError(
       `차트를 불러오지 못했습니다. ${getCliErrorMessage(error)}`,
       500,

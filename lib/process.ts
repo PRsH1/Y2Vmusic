@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 
@@ -84,7 +84,73 @@ export class CliError extends Error {
 type RunCliOptions = {
   maxStdoutBytes?: number;
   maxStderrBytes?: number;
+  /** Wall-clock budget for the whole command. Defaults to 10 minutes. */
+  timeoutMs?: number;
 };
+
+export class CliTimeoutError extends Error {
+  readonly command: string;
+  readonly timeoutMs: number;
+
+  constructor(command: string, timeoutMs: number) {
+    super(`${command} timed out after ${timeoutMs}ms.`);
+    this.name = "CliTimeoutError";
+    this.command = command;
+    this.timeoutMs = timeoutMs;
+  }
+}
+
+/**
+ * Terminates a child and everything it spawned.
+ *
+ * `child.kill()` signals only the direct child, which is not enough here:
+ * yt-dlp launches deno (a 115MB runtime) to solve YouTube's JS challenges and
+ * may launch ffmpeg for HLS muxing. Orphaning those on a 1GB box is how memory
+ * disappears. On Linux the child is its own process group leader (see
+ * `detached` below) so the group can be signalled as a unit; Windows has no
+ * equivalent, so the tree is killed by PID instead.
+ */
+function killTree(child: ChildProcess): void {
+  const pid = child.pid;
+
+  if (pid === undefined) {
+    return;
+  }
+
+  if (isWindows) {
+    try {
+      spawn("taskkill", ["/pid", String(pid), "/T", "/F"], {
+        stdio: "ignore",
+        windowsHide: true,
+      });
+    } catch {
+      // Fall through — the process may have already exited.
+    }
+    return;
+  }
+
+  const signalGroup = (signal: NodeJS.Signals) => {
+    try {
+      process.kill(-pid, signal);
+    } catch {
+      try {
+        child.kill(signal);
+      } catch {
+        // Already gone.
+      }
+    }
+  };
+
+  signalGroup("SIGTERM");
+
+  // Escalate for anything that ignores SIGTERM mid-write.
+  const escalation = setTimeout(() => {
+    if (child.exitCode === null && child.signalCode === null) {
+      signalGroup("SIGKILL");
+    }
+  }, 5_000);
+  escalation.unref?.();
+}
 
 type RunCliResult = {
   stdout: string;
@@ -98,11 +164,15 @@ export function runCli(
 ): Promise<RunCliResult> {
   const maxStdoutBytes = options.maxStdoutBytes ?? 32 * 1024 * 1024;
   const maxStderrBytes = options.maxStderrBytes ?? 4 * 1024 * 1024;
+  const timeoutMs = options.timeoutMs ?? 10 * 60_000;
 
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
+      // Makes the child a process group leader so killTree can signal the
+      // whole group. Not used on Windows, where it would spawn a console.
+      detached: !isWindows,
       env: { ...process.env, PATH: getEnhancedPath() },
     });
 
@@ -120,9 +190,15 @@ export function runCli(
         return;
       }
       settled = true;
-      child.kill();
+      clearTimeout(deadline);
+      killTree(child);
       reject(error);
     };
+
+    const deadline = setTimeout(() => {
+      console.warn(`[deadline] ${command} exceeded ${timeoutMs}ms — terminating`);
+      fail(new CliTimeoutError(command, timeoutMs));
+    }, timeoutMs);
 
     child.stdout.on("data", (chunk: Buffer) => {
       stdoutBytes += chunk.length;
@@ -151,6 +227,7 @@ export function runCli(
         return;
       }
       settled = true;
+      clearTimeout(deadline);
       const message =
         error.code === "ENOENT"
           ? `${command} 명령을 찾을 수 없습니다. PATH에 설치되어 있는지 확인하세요.`
@@ -170,6 +247,7 @@ export function runCli(
         return;
       }
       settled = true;
+      clearTimeout(deadline);
       const stdout = Buffer.concat(stdoutChunks).toString("utf8");
       const stderr = Buffer.concat(stderrChunks).toString("utf8");
 

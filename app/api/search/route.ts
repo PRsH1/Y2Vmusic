@@ -1,3 +1,4 @@
+import { BusyError, metadataAdmission } from "@/lib/admission";
 import { getCliErrorMessage } from "@/lib/process";
 import { searchYouTube } from "@/lib/ytdlp";
 
@@ -16,6 +17,19 @@ function jsonError(message: string, status: number) {
       status,
       headers: {
         "Cache-Control": "no-store",
+      },
+    },
+  );
+}
+
+function busyResponse(error: BusyError) {
+  return Response.json(
+    { error: error.message },
+    {
+      status: 503,
+      headers: {
+        "Cache-Control": "no-store",
+        "Retry-After": String(error.retryAfterSeconds),
       },
     },
   );
@@ -41,7 +55,8 @@ export async function POST(request: Request) {
   }
 
   try {
-    const results = await searchYouTube(query);
+    // Search always spawns yt-dlp — there is no cache to fall back on.
+    const results = await metadataAdmission.run(() => searchYouTube(query));
 
     return Response.json(
       { results },
@@ -52,6 +67,10 @@ export async function POST(request: Request) {
       },
     );
   } catch (error) {
+    if (error instanceof BusyError) {
+      return busyResponse(error);
+    }
+
     return jsonError(`검색을 처리하지 못했습니다. ${getCliErrorMessage(error)}`, 500);
   }
 }
