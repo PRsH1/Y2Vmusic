@@ -66,7 +66,39 @@ function parseFileName(header: string | null): string | null {
 
 const PROCESSING_LABEL = "서버에서 추출·변환 중… (시간이 걸릴 수 있어요)";
 const QUEUED_LABEL = "대기 중… 앞의 작업이 끝나면 시작됩니다";
-const JOB_POLL_INTERVAL_MS = 3000;
+// Short enough that a percentage visibly moves; /api/status is a map lookup.
+const JOB_POLL_INTERVAL_MS = 1500;
+
+type JobUpdate = {
+  state: "queued" | "running";
+  phase: "preparing" | "downloading" | "converting" | null;
+  percent: number | null;
+};
+
+/**
+ * Label and bar for what the server says this job is doing. Each phase gets
+ * its own 0-100 rather than one blended total: weighting download against
+ * conversion would mean inventing a split, and this app does not fake progress.
+ */
+function describeJob(job: JobUpdate, format: AudioFormatChoice): {
+  label: string;
+  percent: number | null;
+} {
+  if (job.state === "queued") {
+    return { label: QUEUED_LABEL, percent: null };
+  }
+
+  if (job.phase === "downloading") {
+    return { label: "YouTube에서 받는 중", percent: job.percent };
+  }
+
+  if (job.phase === "converting") {
+    return { label: `${format.toUpperCase()}로 변환 중`, percent: job.percent };
+  }
+
+  // Resolving the video and solving YouTube's JS challenge reports nothing.
+  return { label: "YouTube에서 준비 중…", percent: null };
+}
 
 function createJobId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -89,7 +121,7 @@ function createJobId(): string {
  */
 function watchJobState(
   jobId: string,
-  onState: (state: "queued" | "running") => void,
+  onUpdate: (job: JobUpdate) => void,
 ): () => void {
   let stopped = false;
 
@@ -104,13 +136,23 @@ function watchJobState(
         { cache: "no-store" },
       );
 
-      if (response.ok && !stopped) {
-        const data = (await response.json()) as { state?: string };
-
-        if (data.state === "queued" || data.state === "running") {
-          onState(data.state);
-        }
+      if (!response.ok || stopped) {
+        return;
       }
+
+      const data = (await response.json()) as Partial<JobUpdate> & { state?: string };
+
+      // Re-checked after the await: the download may have finished while this
+      // poll was in flight, and a late update must not overwrite its label.
+      if (stopped || (data.state !== "queued" && data.state !== "running")) {
+        return;
+      }
+
+      onUpdate({
+        state: data.state,
+        phase: data.phase ?? null,
+        percent: typeof data.percent === "number" ? data.percent : null,
+      });
     } catch {
       // A failed poll only costs a label update; the download is unaffected.
     }
@@ -431,8 +473,14 @@ export default function Home() {
     // is what lets the bar say "waiting in line" instead of implying work is
     // already underway — the streamed response cannot report it mid-flight.
     const jobId = createJobId();
-    const stopWatching = watchJobState(jobId, (state) => {
-      setProgressLabel(state === "queued" ? QUEUED_LABEL : PROCESSING_LABEL);
+    const stopWatching = watchJobState(jobId, (job) => {
+      const view = describeJob(job, format);
+      setProgressLabel(view.label);
+      setProgressIndeterminate(view.percent === null);
+
+      if (view.percent !== null) {
+        setProgress(view.percent);
+      }
     });
 
     try {
@@ -443,6 +491,8 @@ export default function Home() {
         },
         body: JSON.stringify({
           jobId,
+          // Lets the server turn ffmpeg's elapsed time into a percentage.
+          duration: info.duration,
           url,
           format,
           quality,

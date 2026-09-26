@@ -1,5 +1,5 @@
 import { downloadAdmission } from "@/lib/admission";
-import { getJobState, isValidJobId } from "@/lib/job-registry";
+import { getJob, isValidJobId } from "@/lib/job-registry";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,10 +13,13 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const jobId = searchParams.get("jobId")?.trim() ?? "";
   const stats = downloadAdmission.stats;
+  const job = isValidJobId(jobId) ? getJob(jobId) : null;
 
   return Response.json(
     {
-      state: isValidJobId(jobId) ? (getJobState(jobId) ?? "unknown") : "unknown",
+      state: job?.state ?? "unknown",
+      phase: job?.phase ?? null,
+      percent: job?.percent ?? null,
       active: stats.active,
       queued: stats.queued,
     },

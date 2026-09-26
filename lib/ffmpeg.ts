@@ -1,5 +1,5 @@
 import { copyFile } from "node:fs/promises";
-import { runCli } from "@/lib/process";
+import { createLineSplitter, runCli } from "@/lib/process";
 
 /** Conversion budget. A 3-hour FLAC on one core is the worst legitimate case. */
 const CONVERT_TIMEOUT_MS = 15 * 60_000;
@@ -30,6 +30,9 @@ export type ConvertOptions = {
     artist?: string;
     thumbnailPath?: string;
   };
+  /** Source length, needed to turn ffmpeg's elapsed time into a fraction. */
+  durationSeconds?: number | null;
+  onProgress?: (fraction: number) => void;
 };
 
 export async function convert(
@@ -44,7 +47,19 @@ export async function convert(
     return;
   }
 
-  const args = ["-y", "-hide_banner", "-loglevel", "error", "-i", inputPath];
+  // -progress writes key=value lines to stdout; -nostats drops the human
+  // status line from stderr, which would otherwise duplicate it.
+  const args = [
+    "-y",
+    "-hide_banner",
+    "-loglevel",
+    "error",
+    "-progress",
+    "pipe:1",
+    "-nostats",
+    "-i",
+    inputPath,
+  ];
 
   // Add thumbnail as input if available (for album art embedding)
   if (options.metadata?.thumbnailPath) {
@@ -113,8 +128,21 @@ export async function convert(
     args.push(outputPath);
   }
 
+  const totalUs = (options.durationSeconds ?? 0) * 1_000_000;
+  const readProgress = createLineSplitter((line) => {
+    // "out_time_us=N/A" appears before the first frame is written.
+    const match = /^out_time_us=(\d+)$/.exec(line);
+
+    if (match && totalUs > 0) {
+      options.onProgress?.(Math.min(1, Number(match[1]) / totalUs));
+    }
+  });
+
   await runCli("ffmpeg", args, {
-    maxStdoutBytes: 1024 * 1024,
+    // -progress output accumulates here too; a long FLAC can reach hundreds
+    // of KB of it, which the old 1MB cap sat uncomfortably close to.
+    maxStdoutBytes: 8 * 1024 * 1024,
+    onStdout: readProgress,
     maxStderrBytes: 8 * 1024 * 1024,
     timeoutMs: CONVERT_TIMEOUT_MS,
   });

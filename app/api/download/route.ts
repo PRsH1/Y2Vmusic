@@ -7,7 +7,12 @@ import {
   type Slot,
 } from "@/lib/admission";
 import { convert, type AudioFormat } from "@/lib/ffmpeg";
-import { clearJob, isValidJobId, markJob } from "@/lib/job-registry";
+import {
+  clearJob,
+  isValidJobId,
+  markJob,
+  updateJobProgress,
+} from "@/lib/job-registry";
 import { parseTrackMetadata } from "@/lib/metadata";
 import { getCachedInfo, setCachedInfo } from "@/lib/info-cache";
 import { getCliErrorMessage } from "@/lib/process";
@@ -28,6 +33,7 @@ import {
   downloadAudio,
   getVideoInfo,
   isFilterRejection,
+  MAX_DURATION_SECONDS,
   MAX_FILESIZE,
 } from "@/lib/ytdlp";
 
@@ -44,11 +50,14 @@ type DownloadRequest = {
   title?: unknown;
   channel?: unknown;
   jobId?: unknown;
+  duration?: unknown;
 };
 
 type DownloadInfo = {
   title: string;
   channel: string;
+  /** Seconds. Only used to turn ffmpeg's elapsed time into a percentage. */
+  duration: number | null;
 };
 
 const AUDIO_FORMATS = new Set<AudioFormat>(["mp3", "m4a", "opus", "flac"]);
@@ -161,9 +170,13 @@ function toUserMessage(error: unknown): string {
  * from here on — the uploader channel is usually a label, so it is parsed out
  * of the video title the same way the client prefills its fields.
  */
-function toTags(rawTitle: string, rawChannel: string): DownloadInfo {
+function toTags(
+  rawTitle: string,
+  rawChannel: string,
+  duration: number | null,
+): DownloadInfo {
   const parsed = parseTrackMetadata(rawTitle, rawChannel);
-  return { title: parsed.title, channel: parsed.artist };
+  return { title: parsed.title, channel: parsed.artist, duration };
 }
 
 async function getDownloadInfo(
@@ -179,7 +192,7 @@ async function getDownloadInfo(
     const cached = getCachedInfo(videoId);
 
     if (cached) {
-      return toTags(cached.title, cached.channel);
+      return toTags(cached.title, cached.channel, cached.duration);
     }
   }
 
@@ -189,7 +202,7 @@ async function getDownloadInfo(
     setCachedInfo(videoId, info);
   }
 
-  return toTags(info.title, info.channel);
+  return toTags(info.title, info.channel, info.duration);
 }
 
 export async function POST(request: Request) {
@@ -210,6 +223,14 @@ export async function POST(request: Request) {
     const quality = isQuality(body.quality) ? body.quality : "best";
     const title = typeof body.title === "string" ? body.title.trim() : "";
     const channel = typeof body.channel === "string" ? body.channel.trim() : "";
+    // Client-supplied, so bounded; a bad value only mislabels the progress bar.
+    const duration =
+      typeof body.duration === "number" &&
+      Number.isFinite(body.duration) &&
+      body.duration > 0 &&
+      body.duration <= MAX_DURATION_SECONDS
+        ? body.duration
+        : null;
 
     if (!isValidYouTubeUrl(url)) {
       return jsonError("지원하는 YouTube 영상 URL을 입력하세요.", 400);
@@ -240,7 +261,7 @@ export async function POST(request: Request) {
     const info = await getDownloadInfo(
       url,
       videoId,
-      title && channel ? { title, channel } : null,
+      title && channel ? { title, channel, duration } : null,
     );
     // Clears anything a crashed process left behind; a restart is not
     // guaranteed to happen between long-lived downloads.
@@ -255,7 +276,11 @@ export async function POST(request: Request) {
     jobDir = createJobDir();
     const templatePath = path.join(jobDir, "source.%(ext)s");
 
-    await downloadAudio(url, templatePath);
+    await downloadAudio(url, templatePath, (fraction) => {
+      if (jobId) {
+        updateJobProgress(jobId, "downloading", fraction);
+      }
+    });
     const inputPath = resolveDownloadedFile(templatePath);
 
     let responsePath = inputPath;
@@ -267,7 +292,19 @@ export async function POST(request: Request) {
         : null;
 
       const outputPath = createTempPath(jobDir, format);
+      if (jobId) {
+        // Percent stays null when the length is unknown; the bar shows that
+        // honestly as indeterminate instead of guessing.
+        updateJobProgress(jobId, "converting", info.duration ? 0 : null);
+      }
+
       await convert(inputPath, outputPath, {
+        durationSeconds: info.duration,
+        onProgress: (fraction) => {
+          if (jobId) {
+            updateJobProgress(jobId, "converting", fraction);
+          }
+        },
         format,
         bitrate: getBitrate(format, quality),
         metadata: {

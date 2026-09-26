@@ -86,6 +86,8 @@ type RunCliOptions = {
   maxStderrBytes?: number;
   /** Wall-clock budget for the whole command. Defaults to 10 minutes. */
   timeoutMs?: number;
+  /** Receives stdout as it arrives, for progress reporting. Output is still collected. */
+  onStdout?: (text: string) => void;
 };
 
 export class CliTimeoutError extends Error {
@@ -213,6 +215,12 @@ export function runCli(
         return;
       }
       stdoutChunks.push(chunk);
+
+      try {
+        options.onStdout?.(chunk.toString("utf8"));
+      } catch {
+        // A progress callback must never be able to break the command.
+      }
     });
 
     child.stderr.on("data", (chunk: Buffer) => {
@@ -279,4 +287,24 @@ export function getCliErrorMessage(error: unknown): string {
   }
 
   return "알 수 없는 오류가 발생했습니다.";
+}
+
+/**
+ * Turns arbitrary stdout chunks into whole lines. A chunk boundary can fall
+ * mid-line, so the unfinished tail is held until the next chunk completes it.
+ */
+export function createLineSplitter(onLine: (line: string) => void): (text: string) => void {
+  let pending = "";
+
+  return (text: string) => {
+    pending += text;
+    const lines = pending.split(/\r?\n/);
+    pending = lines.pop() ?? "";
+
+    for (const line of lines) {
+      if (line) {
+        onLine(line);
+      }
+    }
+  };
 }

@@ -1,4 +1,4 @@
-import { CliError, runCli } from "@/lib/process";
+import { CliError, createLineSplitter, runCli } from "@/lib/process";
 import type { ChartTrack } from "@/lib/youtube-api";
 
 /**
@@ -254,6 +254,33 @@ export async function fetchPlaylistFromYtDlp(
   return mapTracks(parseJsonLines(stdout));
 }
 
+const PROGRESS_MARKER = "Y2VPROG";
+
+/**
+ * Reads one progress line: "Y2VPROG <downloaded> <total> <estimate>". The total
+ * is "NA" for fragmented streams, where only the estimate exists. Returns null
+ * for any other line, or when there is nothing to divide by.
+ */
+export function parseYtDlpProgress(line: string): number | null {
+  // String.raw: in a plain template literal "\S" collapses to "S".
+  const match = new RegExp(String.raw`${PROGRESS_MARKER} (\S+) (\S+) (\S+)`).exec(line);
+
+  if (!match) {
+    return null;
+  }
+
+  const downloaded = Number(match[1]);
+  const total = Number(match[2]);
+  const estimate = Number(match[3]);
+  const denominator = total > 0 ? total : estimate > 0 ? estimate : 0;
+
+  if (!Number.isFinite(downloaded) || denominator <= 0) {
+    return null;
+  }
+
+  return Math.min(1, Math.max(0, downloaded / denominator));
+}
+
 export const MAX_DURATION_SECONDS = 3 * 60 * 60;
 export const MAX_FILESIZE = "500M";
 
@@ -282,7 +309,18 @@ export function isFilterRejection(error: unknown): boolean {
 export async function downloadAudio(
   url: string,
   outputPath: string,
+  onProgress?: (fraction: number) => void,
 ): Promise<void> {
+  // yt-dlp prints progress to stdout even through a pipe once --newline puts
+  // each update on its own line; the template makes it machine-readable.
+  const readProgress = createLineSplitter((line) => {
+    const fraction = parseYtDlpProgress(line);
+
+    if (fraction !== null) {
+      onProgress?.(fraction);
+    }
+  });
+
   await withRetry(() =>
     runCli(
       "yt-dlp",
@@ -290,7 +328,9 @@ export async function downloadAudio(
         "-f",
         "bestaudio/bestaudio*/best",
         "--no-playlist",
-        "--no-progress",
+        "--newline",
+        "--progress-template",
+        `download:${PROGRESS_MARKER} %(progress.downloaded_bytes)s %(progress.total_bytes)s %(progress.total_bytes_estimate)s`,
         "--break-match-filters",
         `!is_live & duration < ${MAX_DURATION_SECONDS}`,
         "--max-filesize",
@@ -303,6 +343,7 @@ export async function downloadAudio(
         maxStdoutBytes: 8 * 1024 * 1024,
         maxStderrBytes: 8 * 1024 * 1024,
         timeoutMs: DOWNLOAD_TIMEOUT_MS,
+        onStdout: readProgress,
       },
     ),
   );
