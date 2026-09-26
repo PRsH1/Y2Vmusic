@@ -1,5 +1,10 @@
 import { BusyError, metadataAdmission } from "@/lib/admission";
-import { getCached, setCache } from "@/lib/chart-cache";
+import {
+  getCached,
+  getStale,
+  setCache,
+  type CacheHit,
+} from "@/lib/chart-cache";
 import { getPlaylist, isAllowedPlaylist } from "@/lib/playlists";
 import { getCliErrorMessage } from "@/lib/process";
 import { fetchPlaylistFromApi } from "@/lib/youtube-api";
@@ -14,6 +19,26 @@ function jsonError(message: string, status: number) {
     { error: message },
     {
       status,
+      headers: {
+        "Cache-Control": "no-store",
+      },
+    },
+  );
+}
+
+/**
+ * `cachedAt` is the moment the snapshot was fetched from YouTube, not the
+ * moment this response was built. It used to be `new Date()` on every hit,
+ * which made a two-hour-old list look freshly collected.
+ */
+function chartResponse(hit: CacheHit) {
+  return Response.json(
+    {
+      tracks: hit.tracks,
+      cachedAt: new Date(hit.cachedAt).toISOString(),
+      stale: hit.stale,
+    },
+    {
       headers: {
         "Cache-Control": "no-store",
       },
@@ -38,17 +63,7 @@ export async function GET(request: Request) {
   const cached = getCached(playlistId);
 
   if (cached) {
-    return Response.json(
-      {
-        tracks: cached,
-        cachedAt: new Date().toISOString(),
-      },
-      {
-        headers: {
-          "Cache-Control": "no-store",
-        },
-      },
-    );
+    return chartResponse(cached);
   }
 
   try {
@@ -61,18 +76,20 @@ export async function GET(request: Request) {
 
     setCache(playlistId, tracks);
 
-    return Response.json(
-      {
-        tracks,
-        cachedAt: new Date().toISOString(),
-      },
-      {
-        headers: {
-          "Cache-Control": "no-store",
-        },
-      },
-    );
+    return chartResponse({ tracks, cachedAt: Date.now(), stale: false });
   } catch (error) {
+    // A weekly chart that is a few hours stale is worth far more than an
+    // error page, and the WARP proxy this server reaches YouTube through
+    // fails intermittently. Only fall through when there is nothing to serve.
+    const stale = getStale(playlistId);
+
+    if (stale) {
+      console.warn(
+        `[charts] serving stale ${playlistId} after refresh failure: ${getCliErrorMessage(error)}`,
+      );
+      return chartResponse(stale);
+    }
+
     if (error instanceof BusyError) {
       return Response.json(
         { error: error.message },
