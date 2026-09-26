@@ -27,6 +27,7 @@ corepack pnpm dev        # 개발 서버 (http://localhost:3000)
 corepack pnpm build      # 프로덕션 빌드
 corepack pnpm start      # 프로덕션 서버
 corepack pnpm typecheck  # TypeScript 타입 체크
+corepack pnpm check:playlists  # 차트 ID 생존·이름 변경 확인 (YOUTUBE_API_KEY 필요)
 ```
 
 ## Project Structure
@@ -72,6 +73,8 @@ lib/
   temp.ts                 # 요청별 job 디렉터리 생성/정리 + 고아 스위퍼 (sweepStaleJobs)
   thumbnail.ts            # 앨범아트 다운로드 (videoId 기반 URL 구성, 호스트 허용목록, 크기 상한)
 instrumentation.ts        # 서버 기동 시 1회 실행 — temp/ 고아 잔여물 스위핑
+scripts/
+  check-playlists.mjs     # 차트 ID 생존·이름 변경 확인 (수동 실행)
 ```
 
 ## Architecture Decisions
@@ -221,11 +224,19 @@ pm2 restart y2vmusic
 - **인증 없음**: 공개 URL인데 `/api/download`가 누구에게나 열려 있다. nginx basic auth를 적용했다가 사용자 요청으로 되돌렸다(설정 백업: `/etc/nginx/sites-available/y2vmusic.bak.*`). 포트 3000 차단과 localhost 바인딩은 유지되므로 nginx 우회는 불가하고, 동시 실행 제한과 작업 데드라인이 자원 고갈은 막는다. 다만 요청 수 자체를 제한하지는 않으므로 링크를 널리 공유하지 않는 전제가 여전히 필요하다.
 - **클라이언트 이탈 전파 없음**: `request.signal`을 `runCli`에 연결하지 않았다. 브라우저를 닫아도 진행 중인 yt-dlp/ffmpeg는 데드라인까지 계속 돈다(고아로 남지는 않는다 — 데드라인이 프로세스 그룹째 정리한다). 연결하면 CPU를 즉시 회수할 수 있지만, Next가 정상 스트리밍 완료 시에도 signal을 abort하는 경우가 있어 **정상 다운로드를 죽일 위험**이 있다. 이득 대비 위험이 애매해 미뤄둔 항목이다.
 
+## 차트 원본 선정 (2026-09-26 교체)
+
+감사 이후 R&B와 인디 원본을 교체했다. 다음에 원본을 고를 때 알아둘 것.
+
+- **Data API 검색에서 YouTube Music 공식 플레이리스트는 `channelTitle`이 비어 있다.** 채널명으로 거르면 0건이 나온다. **ID 접두사 `RDCLAK`로 걸러야** 찾힌다. 이걸 몰라 한참 돌아갔다.
+- **`playlists.list`는 자동 생성 플레이리스트 조회가 들쭉날쭉하다.** 살아있는 RDCLAK ID 3개 중 1개만 반환하고 2개는 없다고 답했다. 생존 판정은 `playlistItems`로 해야 한다(셋 다 정상 응답).
+- **"최근 갱신"을 첫 항목의 `publishedAt`으로 판단하면 안 된다.** RDCLAK 목록은 큐레이션 순서라 첫 항목이 최신이 아니다. 전체 항목을 훑어 최대값을 봐야 한다. 이 차이로 `Cafe Korean Indie Music`을 2024-02-29로 잘못 읽을 뻔했다(실제 2026-09-18).
+- 교체 근거: R&B는 `Korean R&B Hits 2024`(최신 추가 2025-12-30, 연도 고정) → `Chill Korean Hip-Hop/R&B`(2026-09-04, 힙합 탭과 90곡 중 2곡만 중복). 인디는 `Seoul Cafe`(설명부터 "K-pop folk and ballads", 실제로 화사·ROSÉ·BLACKPINK) → `Cafe Korean Indie Music`(2026-09-18, wave to earth·한로로 등 실제 인디).
+
 ## 미반영 감사 권고
 
 `docs/chart-audit-2026-09-26.md`의 권고 중 판단이 필요해 남겨둔 것.
 
-- **R&B 원본 교체**: 현재 원본 `Korean R&B Hits 2024`는 2024년 회고 모음이라 최신 R&B 인기곡이 아니다. 화면이 이 사실을 밝히도록 고쳤지만 ID 자체는 그대로다. 교체하려면 대체 플레이리스트를 실제로 조회해 확인해야 하고, 인디 탭의 `Seoul Cafe` 연결도 의도에 맞는지 같이 봐야 한다.
-- **`RDCLAK5uy_` ID의 수명**: YouTube Music이 자동 생성하는 믹스 ID라 예고 없이 사라질 수 있다. 사라지면 해당 탭이 500을 반환한다(만료 캐시가 있으면 24시간은 버틴다). 주기적 유효성 확인 장치는 없다.
+- **`RDCLAK5uy_` ID의 수명**: YouTube Music이 자동 생성하는 믹스 ID라 예고 없이 사라지거나 조용히 다른 성격으로 바뀔 수 있다. 사라지면 해당 탭이 오류가 된다(만료 캐시로 24시간은 버틴다). `pnpm check:playlists`로 확인하되 **자동 실행은 없다** — 정기적으로 돌리는 것은 사람 몫이다.
 - **곡 수 상한 비대칭**: `lib/youtube-api.ts`는 100곡에서 자르고(`while (tracks.length < 100)`) yt-dlp 소스는 자르지 않는다. 그래서 OST는 135곡, 트로트는 103곡이 나온다. 의도된 것인지 확인되지 않았다.
 - **검색 결과 20개 고정**: `ytsearch20:`이고 "더 보기"가 없다. 사용자 요청으로 보류.
