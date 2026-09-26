@@ -43,6 +43,8 @@ app/
     search/route.ts       # POST /api/search — YouTube 검색 (yt-dlp ytsearch)
     status/route.ts       # GET /api/status — 자기 다운로드가 대기 중인지 처리 중인지 조회
 components/               # UI 컴포넌트 (url-input, video-info, format-selector, download-button, progress-bar)
+  download-panel.tsx        # 선택한 트랙 아래 인라인으로 열리는 다운로드 패널
+  download-status-bar.tsx   # 화면 하단 고정 진행률·완료 알림
   guide-modal.tsx           # 사용법 모달 (탭 전환, 반응형, ESC/오버레이 닫기)
   preview-player.tsx        # YouTube IFrame 미리듣기 플레이어 (선택 트랙 바로 아래 인라인, ESC/✕ 닫기)
   guide/
@@ -57,11 +59,12 @@ components/               # UI 컴포넌트 (url-input, video-info, format-selec
     track-item.tsx          # 트랙 아이템 (모바일: 아이콘 버튼, 데스크탑: 텍스트 버튼, 미리듣기 토글 aria-expanded)
 lib/
   admission.ts           # 비싼 작업 동시 실행 제한 (download 1 / metadata 2, 대기 초과 시 503 + Retry-After)
+  prefs.ts                # 포맷·품질 선택 기억 (localStorage)
   job-registry.ts         # 요청별 다운로드 상태(queued/running) — 대기 표시용
   ytdlp.ts               # yt-dlp CLI 래퍼 (getVideoInfo, downloadAudio, searchYouTube, fetchPlaylistFromYtDlp) + 429 재시도 + 라이브/길이/용량 상한
   youtube-api.ts          # YouTube Data API v3 래퍼 (fetchPlaylistFromApi)
-  playlists.ts            # 플레이리스트 ID 정의 + 메타데이터
-  chart-cache.ts          # 서버 캐시 — 차트 데이터 (Map 기반, TTL 2시간)
+  playlists.ts            # 플레이리스트 ID + kind(chart/mix) + 원본 이름
+  chart-cache.ts          # 서버 캐시 — 차트 데이터 (TTL 2시간, 조회 실패 시 24시간까지 만료본 대체)
   info-cache.ts           # 서버 캐시 — 영상 info (Map 기반, TTL 10분)
   ffmpeg.ts               # ffmpeg CLI 래퍼 (convert, 메타데이터/앨범아트 삽입)
   process.ts              # child_process.spawn 래퍼 (PATH 보강, 우선순위 양보, 작업 데드라인, 프로세스 그룹 종료)
@@ -82,6 +85,9 @@ instrumentation.ts        # 서버 기동 시 1회 실행 — temp/ 고아 잔�
 - **canonical videoId 파서**: `lib/validate.ts`의 `extractVideoId`가 `URL` 구조 파싱 + 11자 엄격 검증으로 ID를 뽑는다. 기존 정규식(`(?:v=|youtu\.be\/)([\w-]{11})`)은 `?xv=<11자>&v=<실제ID>` 에서 `xv=` 안의 `v=`를 먼저 잡아 **엉뚱한 ID로 캐시를 오염**시켰다. shorts/embed/live URL도 이제 캐시에 적중한다.
 - **라이브·길이·용량 상한**: `downloadAudio`에 `--break-match-filters "!is_live & duration < 10800"` + `--max-filesize 500M`. `--match-filter`가 아니라 `--break-match-filters`인 이유는 전자가 **거부 시 exit 0에 파일만 없어서** 내부 오류로 둔갑하기 때문(후자는 exit 101). 라이브 URL은 `lib/validate.ts`가 `/live/`를 허용하므로 이 상한이 유일한 방어선이다.
 - **거부 사유 메시지 매핑**: 의도적으로 거부하는 경로(필터·용량)는 사람이 읽을 수 있는 한국어로 바꿔 응답한다. 그 외에는 yt-dlp stderr를 그대로 노출한다. 주의 — yt-dlp는 `does not pass filter` 같은 사유를 **stdout**에 쓰므로 `CliError`가 stdout도 보관한다.
+- **다운로드 UI는 누른 자리에, 상태는 항상 보이는 자리에**: 트랙을 고르면 `download-panel.tsx`가 **미리듣기와 같은 인라인 슬롯**에서 열린다. 예전에는 결과 카드가 페이지 최상단에 열려 사용자를 보던 목록에서 떼어놓았다 — 자동 스크롤이 동작하긴 했지만 그게 문제였고, 미리듣기는 인라인인데 다운로드만 순간이동하니 두 버튼의 동작이 비대칭이었다. 진행률과 완료 알림은 반대로 `download-status-bar.tsx`가 **화면 하단에 고정**한다. 추출에 1~2분이 걸려 그동안 목록을 계속 보기 때문이다. 패널은 render prop으로 `TrackList`에 내려보내 상태를 복제하지 않는다.
+- **표기 정직성 (chart vs mix)**: `lib/playlists.ts`의 `kind`가 `"chart"`인 국가별 3개만 `#` 번호를 표시한다. 나머지 9개는 선곡 목록이라 번호가 **인기 순위가 아니라 목록 순서**일 뿐이다(`rank: index + 1`). 목록 위에 원본 이름과 수집 시각을 표시해 탭 라벨이 원본을 오해하게 만들지 않는다 — 예컨대 R&B 탭 원본은 `Korean R&B Hits 2024`라는 2024년 회고 모음이고, "오래된 곡이 반복된다"는 체감의 실제 원인이다. 근거: `docs/chart-audit-2026-09-26.md`.
+- **차트 stale-while-error**: 원본 조회가 실패하면 24시간 이내의 만료 캐시로 대체한다. 주간 차트는 천천히 움직이고 WARP 프록시는 간헐적으로 흔들리므로, 두 시간 지난 목록이 에러 페이지보다 낫다. 대체된 응답은 `stale: true`로 표시되고 화면에도 "갱신 실패로 이전 목록 표시 중"이 뜬다. `cachedAt`은 **실제 수집 시각**이다(예전에는 캐시 적중 시에도 `new Date()`라 두 시간 된 목록이 방금 수집된 것처럼 보였다).
 - **동시 실행 제한 (admission)**: `lib/admission.ts`가 풀을 **둘로 분리**해 관리한다 — download `capacity 1 / 대기 180초`, metadata `capacity 2 / 대기 10초`. 단일 FIFO로 묶으면 안 된다: 차트 요청이 수 분짜리 다운로드 뒤에 줄을 서는데 탐색 UI는 45초에 abort하므로(`explore-section.tsx`), CPU가 노는 동안 조회가 실패한다. 메타데이터 대기 10초는 그 45초보다 충분히 낮게 잡은 값이다. 적용 범위는 **yt-dlp를 실제로 띄우는 경로만** — search는 항상, info·charts는 캐시 미스만, charts의 `youtube-api` 소스는 googleapis 호출이라 제외. 대기 초과 시 JSON 503 + `Retry-After`(무한 큐는 또 다른 고갈 경로다). 다운로드는 **파일 생성까지만 슬롯을 쥐고 전송 전에 반납**한다 — 느린 클라이언트가 다음 추출을 막으면 안 된다.
 - **대기 상한은 작업 시간보다 길어야 한다**: 처음에 다운로드 대기를 30초로 잡았는데, 실측 작업 시간이 76~112초라 **큐가 사실상 동작하지 않았다** — 두 번째 요청은 앞 작업의 마지막 30초 구간에 도착해야만 성공했고 대략 3분의 2가 503이었다. 180초로 올려 큐에서 기다렸다 완료되도록 했다(실측: 1번 49초 완료 → 2번 76초에 완료). 동시 실행을 2로 올리는 선택지는 버렸다 — 1코어를 나눠 쓰면 둘 다 느려지고 WARP 기아 위험이 돌아온다.
 - **대기 상태 표시 (job-registry)**: 다운로드 응답은 단일 스트림이라 **처리 도중에 "당신은 대기 중"이라고 알려줄 수단이 없다.** 그래서 클라이언트가 `jobId`를 동봉하고 `/api/status`를 3초 간격으로 폴링한다. 집계 큐 수치로는 부족하다 — 슬롯 1개에 요청 2개면 `active/queued` 값이 양쪽에 동일해서 자기가 도는 중인지 기다리는 중인지 구분할 수 없다. `/api/status`는 서브프로세스도 admission 슬롯도 쓰지 않아 폴링이 본 작업과 경합하지 않는다. `jobId`는 요청 본문에서 오므로 UUID 형식 검증 + 200개 상한 + 1시간 TTL로 맵이 무한히 자라지 않게 한다. 진행바를 가짜로 움직이지 않는 기존 원칙과 같은 맥락이다.
@@ -191,11 +197,11 @@ pm2 restart y2vmusic
 - 라이트/다크 테마 (시스템 설정 감지 + 수동 토글, localStorage 저장)
 - API 에러 응답: `{ "error": "메시지" }` 형식
 - 포맷 옵션: MP3 (320/192/128), M4A (256/192/128), OPUS (원본), FLAC
-- 플레이리스트 ID 관리: `lib/playlists.ts`에 집중 (ID 변경 시 이 파일만 수정)
+- 플레이리스트 ID 관리: `lib/playlists.ts`에 집중 (ID 변경 시 이 파일만 수정). 새 탭 추가 시 `kind`를 정확히 골라야 한다 — 순위가 아닌 목록에 `chart`를 주면 화면이 거짓말을 한다
 - 추출 상한: 라이브 불가, 3시간(`MAX_DURATION_SECONDS`), 500MB(`MAX_FILESIZE`) — 값은 `lib/ytdlp.ts`에 집중
 - 동시 실행·대기 상한: `lib/admission.ts` 하단의 두 풀 정의에 집중 (download 1개·대기 180초 / metadata 2개·대기 10초)
 - 작업 데드라인: 메타데이터 90초, 플레이리스트 120초, 다운로드 15분(`lib/ytdlp.ts`), 변환 15분(`lib/ffmpeg.ts`)
-- 로그 접두사: `[temp]`, `[thumbnail]`, `[admission]`, `[deadline]` 처럼 대괄호 접두사를 쓴다 (`pm2 logs y2vmusic | grep '\[temp\]'`)
+- 로그 접두사: `[temp]`, `[thumbnail]`, `[admission]`, `[deadline]`, `[charts]` 처럼 대괄호 접두사를 쓴다 (`pm2 logs y2vmusic | grep '\[temp\]'`)
 
 ## Known Limitations
 
@@ -214,3 +220,12 @@ pm2 restart y2vmusic
   진단 시 참고: `journalctl -u warp-svc | grep "hung daemon"` 의 워치독 경고는 2분마다 만성적으로 찍히지만 급성 실패와 무관했다(부하 실험 구간에서 0건). `Socks greeting failed ... UnexpectedEof` 는 불완전한 SOCKS 핸드셰이크(포트 스캔·TCP 연결 테스트)가 남기는 것이라 역시 무관하다.
 - **인증 없음**: 공개 URL인데 `/api/download`가 누구에게나 열려 있다. nginx basic auth를 적용했다가 사용자 요청으로 되돌렸다(설정 백업: `/etc/nginx/sites-available/y2vmusic.bak.*`). 포트 3000 차단과 localhost 바인딩은 유지되므로 nginx 우회는 불가하고, 동시 실행 제한과 작업 데드라인이 자원 고갈은 막는다. 다만 요청 수 자체를 제한하지는 않으므로 링크를 널리 공유하지 않는 전제가 여전히 필요하다.
 - **클라이언트 이탈 전파 없음**: `request.signal`을 `runCli`에 연결하지 않았다. 브라우저를 닫아도 진행 중인 yt-dlp/ffmpeg는 데드라인까지 계속 돈다(고아로 남지는 않는다 — 데드라인이 프로세스 그룹째 정리한다). 연결하면 CPU를 즉시 회수할 수 있지만, Next가 정상 스트리밍 완료 시에도 signal을 abort하는 경우가 있어 **정상 다운로드를 죽일 위험**이 있다. 이득 대비 위험이 애매해 미뤄둔 항목이다.
+
+## 미반영 감사 권고
+
+`docs/chart-audit-2026-09-26.md`의 권고 중 판단이 필요해 남겨둔 것.
+
+- **R&B 원본 교체**: 현재 원본 `Korean R&B Hits 2024`는 2024년 회고 모음이라 최신 R&B 인기곡이 아니다. 화면이 이 사실을 밝히도록 고쳤지만 ID 자체는 그대로다. 교체하려면 대체 플레이리스트를 실제로 조회해 확인해야 하고, 인디 탭의 `Seoul Cafe` 연결도 의도에 맞는지 같이 봐야 한다.
+- **`RDCLAK5uy_` ID의 수명**: YouTube Music이 자동 생성하는 믹스 ID라 예고 없이 사라질 수 있다. 사라지면 해당 탭이 500을 반환한다(만료 캐시가 있으면 24시간은 버틴다). 주기적 유효성 확인 장치는 없다.
+- **곡 수 상한 비대칭**: `lib/youtube-api.ts`는 100곡에서 자르고(`while (tracks.length < 100)`) yt-dlp 소스는 자르지 않는다. 그래서 OST는 135곡, 트로트는 103곡이 나온다. 의도된 것인지 확인되지 않았다.
+- **검색 결과 20개 고정**: `ytsearch20:`이고 "더 보기"가 없다. 사용자 요청으로 보류.
