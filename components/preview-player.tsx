@@ -1,6 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
+import { setPreviewTime } from "@/lib/preview-clock";
+
+const YOUTUBE_ORIGIN = "https://www.youtube.com";
 
 type PreviewPlayerProps = {
   channel: string | null;
@@ -15,6 +18,43 @@ export function PreviewPlayer({
   title,
   videoId,
 }: PreviewPlayerProps) {
+  const frameRef = useRef<HTMLIFrameElement>(null);
+
+  // The embed reports playback over postMessage once told someone is
+  // listening (enablejsapi=1). Only messages from this frame are trusted —
+  // any page could post to this window.
+  useEffect(() => {
+    function handleMessage(event: MessageEvent) {
+      if (event.origin !== YOUTUBE_ORIGIN || event.source !== frameRef.current?.contentWindow) {
+        return;
+      }
+
+      let data: { info?: { currentTime?: unknown } } | null = null;
+
+      try {
+        data = typeof event.data === "string" ? JSON.parse(event.data) : event.data;
+      } catch {
+        return;
+      }
+
+      const time = data?.info?.currentTime;
+
+      if (typeof time === "number" && Number.isFinite(time)) {
+        setPreviewTime(videoId, time);
+      }
+    }
+
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [videoId]);
+
+  function startListening() {
+    frameRef.current?.contentWindow?.postMessage(
+      JSON.stringify({ event: "listening", id: videoId, channel: "widget" }),
+      YOUTUBE_ORIGIN,
+    );
+  }
+
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
@@ -51,7 +91,9 @@ export function PreviewPlayer({
             allowFullScreen
             className="absolute inset-0 h-full w-full"
             key={videoId}
-            src={`https://www.youtube.com/embed/${encodeURIComponent(videoId)}?rel=0&modestbranding=1`}
+            onLoad={startListening}
+            ref={frameRef}
+            src={`https://www.youtube.com/embed/${encodeURIComponent(videoId)}?rel=0&modestbranding=1&enablejsapi=1&origin=${encodeURIComponent(typeof window === "undefined" ? "" : window.location.origin)}`}
             title="미리듣기"
           />
         </div>

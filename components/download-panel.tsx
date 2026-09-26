@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { DownloadButton } from "@/components/download-button";
 import {
   FLAC_NOTE,
@@ -13,6 +14,8 @@ import { formatSource } from "@/components/video-info";
 import type { VideoInfo } from "@/lib/ytdlp";
 
 type DownloadPanelProps = {
+  /** Built by the page so the top card and this panel share one trim state. */
+  trimControls?: ReactNode;
   artist: string;
   /** Set when this track was downloaded before, so a repeat is deliberate. */
   alreadyDownloaded?: string | null;
@@ -41,6 +44,7 @@ type DownloadPanelProps = {
  * happened also matches how preview already behaves.
  */
 export function DownloadPanel({
+  trimControls = null,
   artist,
   alreadyDownloaded = null,
   busy,
@@ -109,6 +113,7 @@ export function DownloadPanel({
             onTitleChange={onTitleChange}
             title={title}
           />
+          {trimControls}
           <FormatSelector
             disabled={busy}
             format={format}

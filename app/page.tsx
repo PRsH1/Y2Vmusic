@@ -13,6 +13,10 @@ import {
 } from "@/components/format-selector";
 import { GuideModal } from "@/components/guide-modal";
 import { MetadataFields } from "@/components/metadata-fields";
+import {
+  TrimControls,
+  type TrimSuggestionView,
+} from "@/components/trim-controls";
 import { UrlInput } from "@/components/url-input";
 import { VideoInfoCard } from "@/components/video-info";
 import {
@@ -22,6 +26,7 @@ import {
   type HistoryEntry,
 } from "@/lib/history";
 import { parseTrackMetadata } from "@/lib/metadata";
+import { parseTime } from "@/lib/trim";
 import {
   readFormat,
   readQuality,
@@ -224,6 +229,13 @@ export default function Home() {
   const [trackArtist, setTrackArtist] = useState("");
   const [trackTitle, setTrackTitle] = useState("");
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [trimEnabled, setTrimEnabled] = useState(false);
+  const [trimStart, setTrimStart] = useState("");
+  const [trimEnd, setTrimEnd] = useState("");
+  const [trimSuggestion, setTrimSuggestion] = useState<TrimSuggestionView | null>(null);
+  // Which video the in-flight suggestion belongs to, so a slow answer for the
+  // previous track cannot land on the next one.
+  const suggestionForRef = useRef<string | null>(null);
   const [info, setInfo] = useState<VideoInfo | null>(null);
   const [format, setFormat] = useState<AudioFormatChoice>("mp3");
   const [quality, setQuality] = useState<QualityChoice>("best");
@@ -362,6 +374,10 @@ export default function Home() {
     setError(null);
     setInfo(null);
     setLoadedUrl(null);
+    setTrimEnabled(false);
+    setTrimStart("");
+    setTrimEnd("");
+    setTrimSuggestion(null);
     clearLastDownload();
     setProgress(0);
     setProgressIndeterminate(false);
@@ -385,6 +401,21 @@ export default function Home() {
       const parsed = parseTrackMetadata(videoInfo.title, videoInfo.channel);
       setTrackArtist(parsed.artist);
       setTrackTitle(parsed.title);
+
+      const suggestionFor = extractVideoId(targetUrl);
+      suggestionForRef.current = suggestionFor;
+
+      if (suggestionFor) {
+        // Best effort: no answer just means no suggestion is offered.
+        void fetch(`/api/segments?videoId=${encodeURIComponent(suggestionFor)}`)
+          .then((response) => (response.ok ? response.json() : null))
+          .then((data: TrimSuggestionView | null) => {
+            if (data && suggestionForRef.current === suggestionFor) {
+              setTrimSuggestion(data);
+            }
+          })
+          .catch(() => undefined);
+      }
       setLoadedUrl(targetUrl.trim());
       setStatus("ready");
     } catch (loadError) {
@@ -462,6 +493,14 @@ export default function Home() {
       return;
     }
 
+    const trimFrom = trimEnabled ? parseTime(trimStart) : null;
+    const trimTo = trimEnabled ? parseTime(trimEnd) : null;
+
+    if (Number.isNaN(trimFrom) || Number.isNaN(trimTo)) {
+      setError("자를 구간의 시각은 1:23 형식으로 입력하세요.");
+      return;
+    }
+
     setStatus("downloading");
     setError(null);
     clearLastDownload();
@@ -493,6 +532,8 @@ export default function Home() {
           jobId,
           // Lets the server turn ffmpeg's elapsed time into a percentage.
           duration: info.duration,
+          trimStart: trimFrom,
+          trimEnd: trimTo,
           url,
           format,
           quality,
@@ -595,6 +636,21 @@ export default function Home() {
     }
   }
 
+  const trimControls = info ? (
+    <TrimControls
+      disabled={isBusy}
+      duration={info.duration}
+      enabled={trimEnabled}
+      end={trimEnd}
+      onEnabledChange={setTrimEnabled}
+      onEndChange={setTrimEnd}
+      onStartChange={setTrimStart}
+      start={trimStart}
+      suggestion={trimSuggestion}
+      videoId={loadedUrl ? extractVideoId(loadedUrl) : null}
+    />
+  ) : null;
+
   return (
     <main className="mx-auto grid min-h-screen w-full max-w-5xl content-start gap-6 px-4 pb-32 pt-8 sm:px-6 lg:px-8">
       <header className="grid gap-2 border-b border-[color:var(--border)] pb-5">
@@ -680,6 +736,9 @@ export default function Home() {
             onTitleChange={setTrackTitle}
             title={trackTitle}
           />
+          <section className="rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] p-4">
+            {trimControls}
+          </section>
           <FormatSelector
             disabled={isBusy}
             format={format}
@@ -712,6 +771,7 @@ export default function Home() {
         downloadPanel={
           selectedVideoId ? (
             <DownloadPanel
+              trimControls={trimControls}
               alreadyDownloaded={
                 selectedHistory
                   ? `이미 ${new Date(selectedHistory.at).toLocaleDateString("ko-KR")}에 ${selectedHistory.format.toUpperCase()}로 받은 곡입니다.`

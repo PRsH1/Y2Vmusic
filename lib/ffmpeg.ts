@@ -1,5 +1,6 @@
 import { copyFile } from "node:fs/promises";
 import { createLineSplitter, runCli } from "@/lib/process";
+import type { TrimRange } from "@/lib/trim";
 
 /** Conversion budget. A 3-hour FLAC on one core is the worst legitimate case. */
 const CONVERT_TIMEOUT_MS = 15 * 60_000;
@@ -33,7 +34,30 @@ export type ConvertOptions = {
   /** Source length, needed to turn ffmpeg's elapsed time into a fraction. */
   durationSeconds?: number | null;
   onProgress?: (fraction: number) => void;
+  /** Section to keep. Absent or null keeps the whole track. */
+  trim?: TrimRange | null;
 };
+
+/** Length of the fade applied where the end of a track was cut off. */
+const FADE_OUT_SECONDS = 0.5;
+
+/**
+ * Input-side seeking. Both options sit before -i so ffmpeg skips the unwanted
+ * audio instead of decoding it — trimming makes conversion faster, not slower.
+ */
+function trimInputArgs(trim: TrimRange | null | undefined): string[] {
+  if (!trim) {
+    return [];
+  }
+
+  const args = ["-ss", String(trim.start)];
+
+  if (trim.end !== null) {
+    args.push("-to", String(trim.end));
+  }
+
+  return args;
+}
 
 export async function convert(
   inputPath: string,
@@ -41,7 +65,29 @@ export async function convert(
   options: ConvertOptions,
 ): Promise<void> {
   if (options.format === "opus") {
-    if (inputPath !== outputPath) {
+    if (options.trim) {
+      // Stream copy keeps the "no re-encoding" promise of this format. Opus
+      // frames are 20ms, so the cut lands within a frame of the request; no
+      // fade is possible without decoding.
+      await runCli(
+        "ffmpeg",
+        [
+          "-y",
+          "-hide_banner",
+          "-loglevel",
+          "error",
+          ...trimInputArgs(options.trim),
+          "-i",
+          inputPath,
+          "-map",
+          "0:a",
+          "-c:a",
+          "copy",
+          outputPath,
+        ],
+        { maxStdoutBytes: 1024 * 1024, maxStderrBytes: 8 * 1024 * 1024, timeoutMs: CONVERT_TIMEOUT_MS },
+      );
+    } else if (inputPath !== outputPath) {
       await copyFile(inputPath, outputPath);
     }
     return;
@@ -57,6 +103,7 @@ export async function convert(
     "-progress",
     "pipe:1",
     "-nostats",
+    ...trimInputArgs(options.trim),
     "-i",
     inputPath,
   ];
@@ -68,6 +115,15 @@ export async function convert(
 
   // Strip video streams from audio input
   args.push("-vn");
+
+  // Seeking resets timestamps to zero, so the fade is placed relative to the
+  // kept length. Only a cut end gets one: a hard stop there tends to click,
+  // while a trimmed start is left alone because fading it in blurs the song.
+  if (options.trim && options.trim.end !== null) {
+    const kept = options.trim.end - options.trim.start;
+    const at = Math.max(0, kept - FADE_OUT_SECONDS);
+    args.push("-af", `afade=t=out:st=${at}:d=${FADE_OUT_SECONDS}`);
+  }
 
   if (options.format === "mp3") {
     args.push("-b:a", `${options.bitrate ?? 320}k`);
@@ -128,7 +184,11 @@ export async function convert(
     args.push(outputPath);
   }
 
-  const totalUs = (options.durationSeconds ?? 0) * 1_000_000;
+  // Progress is measured against what is actually being converted.
+  const keptSeconds = options.trim
+    ? (options.trim.end ?? options.durationSeconds ?? 0) - options.trim.start
+    : (options.durationSeconds ?? 0);
+  const totalUs = Math.max(0, keptSeconds) * 1_000_000;
   const readProgress = createLineSplitter((line) => {
     // "out_time_us=N/A" appears before the first frame is written.
     const match = /^out_time_us=(\d+)$/.exec(line);

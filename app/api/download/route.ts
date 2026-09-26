@@ -14,6 +14,7 @@ import {
   updateJobProgress,
 } from "@/lib/job-registry";
 import { parseTrackMetadata } from "@/lib/metadata";
+import { checkTrim } from "@/lib/trim";
 import { getCachedInfo, setCachedInfo } from "@/lib/info-cache";
 import { getCliErrorMessage } from "@/lib/process";
 import {
@@ -51,6 +52,8 @@ type DownloadRequest = {
   channel?: unknown;
   jobId?: unknown;
   duration?: unknown;
+  trimStart?: unknown;
+  trimEnd?: unknown;
 };
 
 type DownloadInfo = {
@@ -263,6 +266,15 @@ export async function POST(request: Request) {
       videoId,
       title && channel ? { title, channel, duration } : null,
     );
+
+    // Re-checked here: the range comes from the request body.
+    const trimCheck = checkTrim(body.trimStart, body.trimEnd, info.duration, MAX_DURATION_SECONDS);
+
+    if (!trimCheck.ok) {
+      return jsonError(trimCheck.reason, 400);
+    }
+
+    const trim = trimCheck.range;
     // Clears anything a crashed process left behind; a restart is not
     // guaranteed to happen between long-lived downloads.
     const swept = sweepStaleJobs();
@@ -285,6 +297,13 @@ export async function POST(request: Request) {
 
     let responsePath = inputPath;
 
+    if (format === "opus" && trim) {
+      // Same container as the source, cut without re-encoding.
+      const trimmedPath = createTempPath(jobDir, path.extname(inputPath).slice(1) || "webm");
+      await convert(inputPath, trimmedPath, { format: "opus", trim });
+      responsePath = trimmedPath;
+    }
+
     if (format !== "opus") {
       // Album art comes from a server-built URL, never from the request body.
       const thumbnailPath = videoId
@@ -300,6 +319,7 @@ export async function POST(request: Request) {
 
       await convert(inputPath, outputPath, {
         durationSeconds: info.duration,
+        trim,
         onProgress: (fraction) => {
           if (jobId) {
             updateJobProgress(jobId, "converting", fraction);

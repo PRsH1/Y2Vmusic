@@ -92,3 +92,7 @@ export function extractVideoId(value: string): string | null {
 
   return null;
 }
+
+export function isValidVideoId(value: string): boolean {
+  return VIDEO_ID_PATTERN.test(value);
+}
