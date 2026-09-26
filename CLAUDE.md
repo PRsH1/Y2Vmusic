@@ -55,13 +55,14 @@ components/               # UI 컴포넌트 (url-input, video-info, format-selec
     track-list.tsx          # 트랙 리스트 + 더 보기 페이지네이션 + 인라인 미리듣기(활성 트랙 상태 관리, 트랙 변경 시 닫힘)
     track-item.tsx          # 트랙 아이템 (모바일: 아이콘 버튼, 데스크탑: 텍스트 버튼, 미리듣기 토글 aria-expanded)
 lib/
+  admission.ts           # 비싼 작업 동시 실행 제한 (download 1 / metadata 2, 503 + Retry-After)
   ytdlp.ts               # yt-dlp CLI 래퍼 (getVideoInfo, downloadAudio, searchYouTube, fetchPlaylistFromYtDlp) + 429 재시도 + 라이브/길이/용량 상한
   youtube-api.ts          # YouTube Data API v3 래퍼 (fetchPlaylistFromApi)
   playlists.ts            # 플레이리스트 ID 정의 + 메타데이터
   chart-cache.ts          # 서버 캐시 — 차트 데이터 (Map 기반, TTL 2시간)
   info-cache.ts           # 서버 캐시 — 영상 info (Map 기반, TTL 10분)
   ffmpeg.ts               # ffmpeg CLI 래퍼 (convert, 메타데이터/앨범아트 삽입)
-  process.ts              # child_process.spawn 래퍼 (PATH 보강, CliError에 stdout/stderr 동시 보관)
+  process.ts              # child_process.spawn 래퍼 (PATH 보강, 우선순위 양보, 작업 데드라인, 프로세스 그룹 종료)
   validate.ts             # YouTube URL 유효성 검사 + canonical videoId 추출 (extractVideoId)
   temp.ts                 # 요청별 job 디렉터리 생성/정리 + 고아 스위퍼 (sweepStaleJobs)
   thumbnail.ts            # 앨범아트 다운로드 (videoId 기반 URL 구성, 호스트 허용목록, 크기 상한)
@@ -79,6 +80,9 @@ instrumentation.ts        # 서버 기동 시 1회 실행 — temp/ 고아 잔�
 - **canonical videoId 파서**: `lib/validate.ts`의 `extractVideoId`가 `URL` 구조 파싱 + 11자 엄격 검증으로 ID를 뽑는다. 기존 정규식(`(?:v=|youtu\.be\/)([\w-]{11})`)은 `?xv=<11자>&v=<실제ID>` 에서 `xv=` 안의 `v=`를 먼저 잡아 **엉뚱한 ID로 캐시를 오염**시켰다. shorts/embed/live URL도 이제 캐시에 적중한다.
 - **라이브·길이·용량 상한**: `downloadAudio`에 `--break-match-filters "!is_live & duration < 10800"` + `--max-filesize 500M`. `--match-filter`가 아니라 `--break-match-filters`인 이유는 전자가 **거부 시 exit 0에 파일만 없어서** 내부 오류로 둔갑하기 때문(후자는 exit 101). 라이브 URL은 `lib/validate.ts`가 `/live/`를 허용하므로 이 상한이 유일한 방어선이다.
 - **거부 사유 메시지 매핑**: 의도적으로 거부하는 경로(필터·용량)는 사람이 읽을 수 있는 한국어로 바꿔 응답한다. 그 외에는 yt-dlp stderr를 그대로 노출한다. 주의 — yt-dlp는 `does not pass filter` 같은 사유를 **stdout**에 쓰므로 `CliError`가 stdout도 보관한다.
+- **동시 실행 제한 (admission)**: `lib/admission.ts`가 풀을 **둘로 분리**해 관리한다 — download `capacity 1 / 대기 30초`, metadata `capacity 2 / 대기 10초`. 단일 FIFO로 묶으면 안 된다: 차트 요청이 수 분짜리 다운로드 뒤에 줄을 서는데 탐색 UI는 45초에 abort하므로(`explore-section.tsx`), CPU가 노는 동안 조회가 실패한다. 메타데이터 대기 10초는 그 45초보다 충분히 낮게 잡은 값이다. 적용 범위는 **yt-dlp를 실제로 띄우는 경로만** — search는 항상, info·charts는 캐시 미스만, charts의 `youtube-api` 소스는 googleapis 호출이라 제외. 대기 초과 시 JSON 503 + `Retry-After`(무한 큐는 또 다른 고갈 경로다). 다운로드는 **파일 생성까지만 슬롯을 쥐고 전송 전에 반납**한다 — 느린 클라이언트가 다음 추출을 막으면 안 된다.
+- **admission 데드락 방지 (`maxHoldMs`)**: 반납이 누락된 경로가 하나라도 있으면 풀이 프로세스 수명 내내 잠겨 이후 모든 요청이 503이 된다. 슬롯은 `maxHoldMs` 초과 시 강제 해제되며 `console.error`로 남는다. 용량을 잠시 초과하는 편이 영구 데드락보다 낫다. **A(동시성 제한)와 B(데드라인)는 반드시 함께 가야 한다** — 데드라인 없는 세마포어는 작업이 한 번 멈추면 그대로 잠긴다.
+- **작업 데드라인 + 프로세스 그룹 종료**: `runCli`에 `timeoutMs`를 두고 초과 시 `CliTimeoutError`. 종료는 `killTree`가 담당하는데, `child.kill()`이 직계 자식만 신호하기 때문이다 — yt-dlp는 JS 챌린지용 deno(115MB)와 HLS 먹싱용 ffmpeg를 띄우므로 고아로 남으면 1GB 박스의 메모리가 사라진다. Linux는 `detached`로 프로세스 그룹 리더를 만들어 그룹째 SIGTERM → 5초 후 SIGKILL, Windows는 `taskkill /T /F`로 분기한다(Windows에 `detached`를 주면 콘솔이 뜨므로 Linux 전용). 서버에서 손자 프로세스 3개가 전부 정리되는 것을 확인했다. 데드라인은 재시도 대상이 아니다 — `withRetry`는 429만 재시도한다.
 - **서브프로세스 우선순위 양보 (WARP 보호)**: `runCli`이 spawn 직후 `os.setPriority(pid, 15)`로 우선순위를 낮춘다. yt-dlp는 로컬 WARP SOCKS5 프록시를 통해 YouTube에 닿는데, `warp-svc`가 같은 1 OCPU를 우리 작업과 나눠 쓰다 굶으면 프록시가 응답을 멈춘다. `nice` 접두사가 아니라 Node 내장 API를 쓴 이유는 Windows 로컬 개발에서도 동작해야 하기 때문이다. yt-dlp가 나중에 띄우는 deno는 자식이라 값을 상속한다(서버에서 둘 다 nice 15 확인). 경합이 없으면 nice 값과 무관하게 코어를 100% 받으므로 평소 속도 저하는 없다.
 - **ID3 태그**: ffmpeg로 MP3/M4A/FLAC 변환 시 제목, 아티스트, 앨범아트 자동 삽입
 - **하이브리드 차트**: PL 접두사 차트는 YouTube Data API v3, RDCLAK5uy_ 장르 플레이리스트는 yt-dlp로 분기 처리
@@ -185,7 +189,9 @@ pm2 restart y2vmusic
 - 포맷 옵션: MP3 (320/192/128), M4A (256/192/128), OPUS (원본), FLAC
 - 플레이리스트 ID 관리: `lib/playlists.ts`에 집중 (ID 변경 시 이 파일만 수정)
 - 추출 상한: 라이브 불가, 3시간(`MAX_DURATION_SECONDS`), 500MB(`MAX_FILESIZE`) — 값은 `lib/ytdlp.ts`에 집중
-- 로그 접두사: `[temp]`, `[thumbnail]` 처럼 대괄호 접두사를 쓴다 (`pm2 logs y2vmusic | grep '\[temp\]'`)
+- 동시 실행·대기 상한: `lib/admission.ts` 하단의 두 풀 정의에 집중 (download / metadata)
+- 작업 데드라인: 메타데이터 90초, 플레이리스트 120초, 다운로드 15분(`lib/ytdlp.ts`), 변환 15분(`lib/ffmpeg.ts`)
+- 로그 접두사: `[temp]`, `[thumbnail]`, `[admission]`, `[deadline]` 처럼 대괄호 접두사를 쓴다 (`pm2 logs y2vmusic | grep '\[temp\]'`)
 
 ## Known Limitations
 
@@ -202,5 +208,5 @@ pm2 restart y2vmusic
   다운로드 경로만 실패했던 이유는 그 경로만 CPU를 포화시키기 때문이다 — yt-dlp의 JS 챌린지 해독(deno)과 ffmpeg 변환이 코어를 채우는 동안 같은 yt-dlp가 WARP을 통해 미디어를 받아야 한다. 해결: 서브프로세스 `os.setPriority` + `warp-svc` systemd 우선순위(둘 다 위 참고). 적용 후 연속 다운로드 **5/5 성공**(76~112초).
 
   진단 시 참고: `journalctl -u warp-svc | grep "hung daemon"` 의 워치독 경고는 2분마다 만성적으로 찍히지만 급성 실패와 무관했다(부하 실험 구간에서 0건). `Socks greeting failed ... UnexpectedEof` 는 불완전한 SOCKS 핸드셰이크(포트 스캔·TCP 연결 테스트)가 남기는 것이라 역시 무관하다.
-- **인증·레이트리밋 없음**: 공개 URL인데 `/api/download`가 누구에게나 열려 있다. nginx basic auth를 적용했다가 사용자 요청으로 되돌렸다(설정 백업: `/etc/nginx/sites-available/y2vmusic.bak.*`). 포트 3000 차단과 localhost 바인딩은 유지되므로 nginx 우회는 불가하지만, 1 OCPU / 1GB 환경에서 동시 요청 보호 장치가 없다. **다음 작업 후보**: 비싼 작업(yt-dlp를 띄우는 전 경로) admission 제어 + `runCli` 작업 데드라인 + 자식 프로세스 그룹 종료. 두 가지는 함께 가야 한다 — 데드라인 없는 세마포어는 한 번 멈추면 영구 데드락이다.
-- **`runCli` 타임아웃 없음**: `lib/process.ts`는 출력 크기 상한만 있고 시간 제한이나 요청 abort 전파가 없다. 브라우저를 닫아도 yt-dlp/ffmpeg는 계속 돈다. `child.kill()`은 직계 자식에게 SIGTERM 한 번뿐이라 yt-dlp가 띄운 deno(115MB)·ffmpeg가 고아로 남을 수 있다.
+- **인증 없음**: 공개 URL인데 `/api/download`가 누구에게나 열려 있다. nginx basic auth를 적용했다가 사용자 요청으로 되돌렸다(설정 백업: `/etc/nginx/sites-available/y2vmusic.bak.*`). 포트 3000 차단과 localhost 바인딩은 유지되므로 nginx 우회는 불가하고, 동시 실행 제한과 작업 데드라인이 자원 고갈은 막는다. 다만 요청 수 자체를 제한하지는 않으므로 링크를 널리 공유하지 않는 전제가 여전히 필요하다.
+- **클라이언트 이탈 전파 없음**: `request.signal`을 `runCli`에 연결하지 않았다. 브라우저를 닫아도 진행 중인 yt-dlp/ffmpeg는 데드라인까지 계속 돈다(고아로 남지는 않는다 — 데드라인이 프로세스 그룹째 정리한다). 연결하면 CPU를 즉시 회수할 수 있지만, Next가 정상 스트리밍 완료 시에도 signal을 abort하는 경우가 있어 **정상 다운로드를 죽일 위험**이 있다. 이득 대비 위험이 애매해 미뤄둔 항목이다.
