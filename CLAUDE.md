@@ -43,11 +43,13 @@ app/
     charts/route.ts       # GET /api/charts — 차트/플레이리스트 조회 (YouTube Data API v3 + yt-dlp)
     search/route.ts       # POST /api/search — YouTube 검색 (yt-dlp ytsearch)
     status/route.ts       # GET /api/status — 자기 다운로드가 대기 중인지 처리 중인지 조회
+    segments/route.ts     # GET /api/segments — 구간 자르기 제안 (SponsorBlock)
 components/               # UI 컴포넌트 (url-input, video-info, format-selector, download-button, progress-bar)
   download-panel.tsx        # 선택한 트랙 아래 인라인으로 열리는 다운로드 패널
   download-status-bar.tsx   # 화면 하단 고정 진행률·완료 알림
   download-history.tsx      # 최근 받은 곡 목록 (접힘, 다시 받기, 기록 지우기)
   metadata-fields.tsx       # 저장 전 아티스트·제목 수정 입력칸
+  trim-controls.tsx         # 구간 자르기 (직접 입력, SponsorBlock 제안, 미리듣기 위치 찍기)
   guide-modal.tsx           # 사용법 모달 (탭 전환, 반응형, ESC/오버레이 닫기)
   preview-player.tsx        # YouTube IFrame 미리듣기 플레이어 (선택 트랙 바로 아래 인라인, ESC/✕ 닫기)
   guide/
@@ -65,6 +67,9 @@ lib/
   prefs.ts                # 포맷·품질 선택 기억 (localStorage)
   history.ts              # 다운로드 기록 (localStorage, 최신순 200개)
   metadata.ts             # 영상 제목에서 아티스트·제목 파싱 (채널은 대개 레이블이라)
+  trim.ts                 # 구간 파싱·표시·검증 (클라이언트와 서버 공용)
+  sponsorblock.ts         # 비음악 구간 조회 (music_offtopic, 해시 접두 조회, 1시간 캐시)
+  preview-clock.ts        # 미리듣기 재생 위치 공유 저장소 (플레이어 → 패널)
   job-registry.ts         # 요청별 다운로드 상태(queued/running) — 대기 표시용
   ytdlp.ts               # yt-dlp CLI 래퍼 (getVideoInfo, downloadAudio, searchYouTube, fetchPlaylistFromYtDlp) + 429 재시도 + 라이브/길이/용량 상한
   youtube-api.ts          # YouTube Data API v3 래퍼 (fetchPlaylistFromApi)
@@ -103,6 +108,9 @@ scripts/
 - **서브프로세스 우선순위 양보 (WARP 보호)**: `runCli`이 spawn 직후 `os.setPriority(pid, 15)`로 우선순위를 낮춘다. yt-dlp는 로컬 WARP SOCKS5 프록시를 통해 YouTube에 닿는데, `warp-svc`가 같은 1 OCPU를 우리 작업과 나눠 쓰다 굶으면 프록시가 응답을 멈춘다. `nice` 접두사가 아니라 Node 내장 API를 쓴 이유는 Windows 로컬 개발에서도 동작해야 하기 때문이다. yt-dlp가 나중에 띄우는 deno는 자식이라 값을 상속한다(서버에서 둘 다 nice 15 확인). 경합이 없으면 nice 값과 무관하게 코어를 100% 받으므로 평소 속도 저하는 없다.
 - **아티스트는 채널이 아니라 제목에서**: YouTube가 주는 건 업로드 채널이고, 음악 영상의 채널은 대개 레이블이다. 그대로 쓰면 ID3 아티스트가 "HYBE LABELS", "KQ ENTERTAINMENT", "이지금 [IU Official]"이 되고 제목엔 "Official MV"가 붙는다. `lib/metadata.ts`가 "아티스트 - 제목", 아티스트 '제목', `[MV]` 접두 같은 흔한 형태를 읽고 포장 문구를 걷는다. 추측이므로 **저장 전에 고칠 수 있게** 입력칸을 둔다. 파일명은 "아티스트 - 제목". 클라이언트가 값을 안 보낸 요청에도 서버가 같은 파싱을 적용한다.
 - **정사각형 앨범아트**: 썸네일(maxresdefault)은 1280×720인데 음악 앱은 커버를 정사각형으로 보여준다. 짧은 변 기준 중앙 크롭(`COVER_ART_ARGS`, `min(iw,ih)`라 세로형도 됨).
+- **구간 자르기**: 모든 곡에서 쓰는 선택 기능(기본 꺼짐). MV인지 음원인지 코드로 믿을 만하게 구분할 수 없어 대상을 제한하지 않는다. 지정은 세 가지 — 직접 입력, SponsorBlock `music_offtopic`(MV 비음악 구간 전용 카테고리) 제안, 미리듣기 재생 위치 찍기. **제안은 [적용]으로만 채우고 자동 적용하지 않는다** — 커뮤니티 데이터라 가끔 틀리고, 조용히 틀리게 자르면 실제 음악이 사라져도 알아채기 어렵다. 1초 미만 구간은 제안하지 않는다(운영 데이터에 0.27초짜리 "인트로" 태그가 있었다). 곡 중간 구간은 보고만 하고 자르지 않는다. SponsorBlock은 해시 접두 4자리로 조회해 영상 ID를 보내지 않는다. 차트 상위 25곡 중 8곡에 데이터가 있었다.
+- **자르기 방식이 포맷마다 다른 이유**: 재인코딩 포맷(MP3·M4A·FLAC)은 `-ss`/`-to`를 **`-i` 앞**(입력 쪽)에 둔다 — 버릴 구간을 디코딩하지 않아 빠르고 정확하다. OPUS는 스트림 복사라 **`-i` 뒤**(출력 쪽)에 둔다. 스트림 복사에서 입력 쪽 탐색은 직전 WebM 클러스터로 맞춰져 **1.1초 길게** 잘렸다(기대 151.34초 → 152.46초). 출력 쪽은 151.365초(오차 25ms). 잘린 끝에만 0.5초 페이드아웃(실측: 마지막 0.4초 −46 dB, 직전 −14 dB). 잘린 앞은 페이드인하지 않는다 — 곡 도입이 흐려진다. OPUS는 디코딩하지 않으니 페이드가 없다.
+- **미리듣기 위치**: 임베드를 `enablejsapi=1`로 열고 `{event:"listening"}`을 보내면 `infoDelivery`로 `currentTime`이 온다. **이 iframe의 contentWindow에서 온 메시지만 믿는다**(아무 페이지나 이 창에 postMessage를 보낼 수 있다). 플레이어와 패널은 부모가 달라 `lib/preview-clock.ts`로 잇고, 미리듣기를 닫아도 마지막 위치가 남아 "듣고 닫고 찍기"가 된다.
 - **다운로드 기록**: localStorage에 최신순 200개. 차트의 "✓ 받음" 배지와 패널의 "이미 받은 곡" 안내로 실수 중복을 막는다(한 곡에 1~2분). 저장값은 사용자가 편집할 수 있으므로 형식이 틀린 항목은 읽을 때 버린다.
 - **ID3 태그**: ffmpeg로 MP3/M4A/FLAC 변환 시 제목, 아티스트, 앨범아트 자동 삽입 (아티스트·제목은 위 파싱 결과)
 - **하이브리드 차트**: PL 접두사 차트는 YouTube Data API v3, RDCLAK5uy_ 장르 플레이리스트는 yt-dlp로 분기 처리
