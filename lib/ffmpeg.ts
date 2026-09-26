@@ -66,9 +66,12 @@ export async function convert(
 ): Promise<void> {
   if (options.format === "opus") {
     if (options.trim) {
-      // Stream copy keeps the "no re-encoding" promise of this format. Opus
-      // frames are 20ms, so the cut lands within a frame of the request; no
-      // fade is possible without decoding.
+      // Stream copy keeps the "no re-encoding" promise of this format, and no
+      // fade is possible without decoding. The seek goes AFTER -i here, unlike
+      // the re-encoding path: with stream copy, input-side seeking snaps back
+      // to the previous WebM cluster — measured 1.1s too long on a real track.
+      // Output-side seeking drops packets up to the mark instead, landing
+      // within one 20ms Opus frame (measured 25ms).
       await runCli(
         "ffmpeg",
         [
@@ -76,9 +79,9 @@ export async function convert(
           "-hide_banner",
           "-loglevel",
           "error",
-          ...trimInputArgs(options.trim),
           "-i",
           inputPath,
+          ...trimInputArgs(options.trim),
           "-map",
           "0:a",
           "-c:a",
