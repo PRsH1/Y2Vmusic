@@ -18,6 +18,8 @@ const TIMEOUT_MS = 5_000;
 const CACHE_TTL_MS = 60 * 60 * 1000;
 /** A segment this close to either end counts as the intro or the outro. */
 const EDGE_SECONDS = 1.5;
+/** Sections shorter than this are not worth offering to cut. */
+const MIN_SECTION_SECONDS = 1;
 
 export type TrimSuggestion = {
   /** Suggested start: where the leading non-music section ends. */
@@ -47,6 +49,16 @@ export function suggestTrim(segments: Array<[number, number]>, duration: number 
     } else {
       middle += 1;
     }
+  }
+
+  // A sub-second "intro" is a tagging artifact (seen on live chart data as
+  // 0.27s and 0.34s); suggesting a cut to 0:00 would just be noise.
+  if (start !== null && start < MIN_SECTION_SECONDS) {
+    start = null;
+  }
+
+  if (end !== null && duration && duration - end < MIN_SECTION_SECONDS) {
+    end = null;
   }
 
   // Overlapping community tags could leave nothing to keep.
