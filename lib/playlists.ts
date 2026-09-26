@@ -56,14 +56,15 @@ export const PLAYLISTS: PlaylistDef[] = [
     sourceName: "Korean Hip-Hop: Turn Up Seoul",
   },
   {
-    id: "RDCLAK5uy_ksS_w6iD9_BbnCccQrUOq5oawpqNcOGZ4",
+    // Was "Korean R&B Hits 2024" (RDCLAK5uy_ksS_...), a year retrospective
+    // whose newest track was added 2025-12-30 — the reason the same older
+    // songs kept coming back. This one is not year-locked and had tracks
+    // added 2026-09-04. It overlaps the 힙합 tab by only 2 of 90 songs.
+    id: "RDCLAK5uy_kT-sIJz2O-hpkxwjosN2hMt9Y5xevcPYI",
     label: "R&B",
     source: "yt-dlp",
     kind: "mix",
-    // A 2024 retrospective, not a current R&B ranking. Named here so the
-    // screen can say so rather than leaving people to wonder why the same
-    // older songs keep appearing.
-    sourceName: "Korean R&B Hits 2024",
+    sourceName: "Chill Korean Hip-Hop/R&B",
   },
   {
     id: "RDCLAK5uy_kkkmhZXFpAZyn2AQ8GmnHfS1lP70KvHmE",
@@ -73,11 +74,15 @@ export const PLAYLISTS: PlaylistDef[] = [
     sourceName: "Touching Korean Ballad",
   },
   {
-    id: "RDCLAK5uy_k8JkYuMnVs1DbA2yZlj4gNVWY1CLAp_sQ",
+    // Was "Seoul Cafe" (RDCLAK5uy_k8Jk...), which its own description called
+    // "a curated collection of K-pop folk and ballads" — HWASA, ROSÉ,
+    // BLACKPINK, BIGBANG. Mainstream K-pop under an 인디 label. This one is
+    // actually indie (wave to earth, 한로로) and had tracks added 2026-09-18.
+    id: "RDCLAK5uy_lRJL69-EgXkWeTAXA3v__oMk-3IWf2NA0",
     label: "인디",
     source: "yt-dlp",
     kind: "mix",
-    sourceName: "Seoul Cafe",
+    sourceName: "Cafe Korean Indie Music",
   },
   {
     id: "RDCLAK5uy_mgqzBJZr84DG9MvViJ5dgClLG6QdGuXcw",
