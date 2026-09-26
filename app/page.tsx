@@ -47,6 +47,67 @@ function parseFileName(header: string | null): string | null {
   return fallbackMatch?.[1] ?? null;
 }
 
+const PROCESSING_LABEL = "서버에서 추출·변환 중… (시간이 걸릴 수 있어요)";
+const QUEUED_LABEL = "대기 중… 앞의 작업이 끝나면 시작됩니다";
+const JOB_POLL_INTERVAL_MS = 3000;
+
+function createJobId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+
+  // Older Safari has crypto but not randomUUID. The id only has to be unique
+  // per in-flight request, and the server ignores anything malformed.
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (char) => {
+    const random = (Math.random() * 16) | 0;
+    const value = char === "x" ? random : (random & 0x3) | 0x8;
+    return value.toString(16);
+  });
+}
+
+/**
+ * Polls this job's own state until stopped. Aggregate queue counts cannot
+ * tell a client whether it is the one running, so the server is asked about
+ * this specific job id.
+ */
+function watchJobState(
+  jobId: string,
+  onState: (state: "queued" | "running") => void,
+): () => void {
+  let stopped = false;
+
+  const tick = async () => {
+    if (stopped) {
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `/api/status?jobId=${encodeURIComponent(jobId)}`,
+        { cache: "no-store" },
+      );
+
+      if (response.ok && !stopped) {
+        const data = (await response.json()) as { state?: string };
+
+        if (data.state === "queued" || data.state === "running") {
+          onState(data.state);
+        }
+      }
+    } catch {
+      // A failed poll only costs a label update; the download is unaffected.
+    }
+  };
+
+  void tick();
+  const timer = window.setInterval(() => void tick(), JOB_POLL_INTERVAL_MS);
+
+  return () => {
+    stopped = true;
+    window.clearInterval(timer);
+  };
+}
+
 function fallbackFileName(title: string, format: AudioFormatChoice): string {
   const safeTitle = title
     .replace(/[<>:"/\\|?*\x00-\x1F]/g, "")
@@ -248,7 +309,15 @@ export default function Home() {
     clearLastDownload();
     setProgress(0);
     setProgressIndeterminate(true);
-    setProgressLabel("서버에서 추출·변환 중… (시간이 걸릴 수 있어요)");
+    setProgressLabel(PROCESSING_LABEL);
+
+    // The server runs one extraction at a time. Polling this job's own state
+    // is what lets the bar say "waiting in line" instead of implying work is
+    // already underway — the streamed response cannot report it mid-flight.
+    const jobId = createJobId();
+    const stopWatching = watchJobState(jobId, (state) => {
+      setProgressLabel(state === "queued" ? QUEUED_LABEL : PROCESSING_LABEL);
+    });
 
     try {
       const response = await fetch("/api/download", {
@@ -257,6 +326,7 @@ export default function Home() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          jobId,
           url,
           format,
           quality,
@@ -264,6 +334,8 @@ export default function Home() {
           channel: info.channel,
         }),
       });
+
+      stopWatching();
 
       if (!response.ok) {
         throw new Error(await readError(response));
@@ -339,6 +411,8 @@ export default function Home() {
       setProgressIndeterminate(false);
       setProgressLabel("준비 중");
       setError(getErrorMessage(downloadError));
+    } finally {
+      stopWatching();
     }
   }
 

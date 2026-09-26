@@ -148,14 +148,21 @@ export class Admission {
 }
 
 /**
- * Extraction and conversion: CPU-bound, one at a time. The wait is generous
- * because a second click should queue rather than fail, and the download
- * request has no client-side timeout to race.
+ * Extraction and conversion: CPU-bound, one at a time.
+ *
+ * The wait has to exceed how long a job actually takes, or queueing is
+ * pointless — a second request would always age out while the first is still
+ * running. Measured on this server: 76-112s per track. At the original 30s
+ * roughly two thirds of second downloads were turned away; 180s lets a
+ * queued track wait out the one ahead of it and finish.
+ *
+ * Nothing caps the queue by count — each waiter ages out on its own — and the
+ * download request has no client-side timeout to race.
  */
 export const downloadAdmission = new Admission({
   label: "download",
   capacity: 1,
-  waitMs: 30_000,
+  waitMs: 180_000,
   maxHoldMs: 50 * 60_000,
 });
 

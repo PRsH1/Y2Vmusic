@@ -7,6 +7,7 @@ import {
   type Slot,
 } from "@/lib/admission";
 import { convert, type AudioFormat } from "@/lib/ffmpeg";
+import { clearJob, isValidJobId, markJob } from "@/lib/job-registry";
 import { getCachedInfo, setCachedInfo } from "@/lib/info-cache";
 import { getCliErrorMessage } from "@/lib/process";
 import {
@@ -41,6 +42,7 @@ type DownloadRequest = {
   quality?: unknown;
   title?: unknown;
   channel?: unknown;
+  jobId?: unknown;
 };
 
 type DownloadInfo = {
@@ -188,6 +190,7 @@ async function getDownloadInfo(
 export async function POST(request: Request) {
   let jobDir: string | undefined;
   let slot: Slot | undefined;
+  let jobId: string | undefined;
   let body: DownloadRequest;
 
   try {
@@ -211,10 +214,22 @@ export async function POST(request: Request) {
       return jsonError("지원하는 오디오 포맷을 선택하세요.", 400);
     }
 
+    jobId = isValidJobId(body.jobId) ? body.jobId : undefined;
+
+    // Marked before acquiring so a client polling /api/status sees "queued"
+    // for the whole time it spends waiting for the slot.
+    if (jobId) {
+      markJob(jobId, "queued");
+    }
+
     // Held only until the file exists. Transfer is cheap and a slow client
     // must not keep the next extraction waiting, so the slot is released
     // before the streaming response is returned.
     slot = await downloadAdmission.acquire();
+
+    if (jobId) {
+      markJob(jobId, "running");
+    }
 
     const videoId = extractVideoId(url);
     const info = await getDownloadInfo(
@@ -308,5 +323,6 @@ export async function POST(request: Request) {
     return jsonError(toUserMessage(error), 500);
   } finally {
     slot?.release();
+    clearJob(jobId);
   }
 }
