@@ -19,6 +19,27 @@ type ExploreMode = "chart" | "search";
 
 const REQUEST_TIMEOUT_MS = 45_000;
 
+/** Collection time in words, so "2시간 전" reads at a glance. */
+function describeCollected(iso: string): string {
+  const at = new Date(iso).getTime();
+
+  if (!Number.isFinite(at)) {
+    return "";
+  }
+
+  const minutes = Math.max(0, Math.round((Date.now() - at) / 60_000));
+
+  if (minutes < 1) {
+    return "방금";
+  }
+
+  if (minutes < 60) {
+    return `${minutes}분 전`;
+  }
+
+  return `${Math.round(minutes / 60)}시간 전`;
+}
+
 async function readError(response: Response): Promise<string> {
   const contentType = response.headers.get("Content-Type") ?? "";
 
@@ -69,7 +90,11 @@ export function ExploreSection({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<ExploreMode>("chart");
+  const [collectedAt, setCollectedAt] = useState<string | null>(null);
+  const [isStale, setIsStale] = useState(false);
   const requestIdRef = useRef(0);
+
+  const playlist = PLAYLISTS.find((item) => item.id === activePlaylist) ?? null;
 
   async function loadChart(playlistId: string) {
     const requestId = requestIdRef.current + 1;
@@ -87,19 +112,27 @@ export function ExploreSection({
         throw new Error(await readError(response));
       }
 
-      const data = (await response.json()) as { tracks?: ChartTrack[] };
+      const data = (await response.json()) as {
+        tracks?: ChartTrack[];
+        cachedAt?: string;
+        stale?: boolean;
+      };
 
       if (requestIdRef.current !== requestId) {
         return;
       }
 
       setTracks(data.tracks ?? []);
+      setCollectedAt(data.cachedAt ?? null);
+      setIsStale(data.stale === true);
     } catch (loadError) {
       if (requestIdRef.current !== requestId) {
         return;
       }
 
       setTracks([]);
+      setCollectedAt(null);
+      setIsStale(false);
       setError(getErrorMessage(loadError));
     } finally {
       if (requestIdRef.current === requestId) {
@@ -199,17 +232,29 @@ export function ExploreSection({
             : "곡 목록을 불러올 수 없습니다"}
         </p>
       ) : (
-        <TrackList
-          downloadPanel={downloadPanel}
-          onTrackSelect={(videoId) => {
-            if (!disabled) {
-              onTrackSelect(videoId);
-            }
-          }}
-          selectedVideoId={selectedVideoId}
-          showRank={mode === "chart"}
-          tracks={tracks}
-        />
+        <>
+          {mode === "chart" && playlist ? (
+            <p className="text-xs text-[color:var(--muted)]">
+              원본: {playlist.sourceName}
+              {playlist.kind === "mix" ? " · 순위가 아닌 선곡 목록" : ""}
+              {collectedAt ? ` · ${describeCollected(collectedAt)} 수집` : ""}
+              {isStale ? " · 갱신 실패로 이전 목록 표시 중" : ""}
+            </p>
+          ) : null}
+          <TrackList
+            downloadPanel={downloadPanel}
+            onTrackSelect={(videoId) => {
+              if (!disabled) {
+                onTrackSelect(videoId);
+              }
+            }}
+            selectedVideoId={selectedVideoId}
+            // Only a real weekly chart earns numbering. The other tabs are
+            // editorial selections whose order carries no ranking.
+            showRank={mode === "chart" && playlist?.kind === "chart"}
+            tracks={tracks}
+          />
+        </>
       )}
     </section>
   );
