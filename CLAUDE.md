@@ -53,9 +53,9 @@ components/               # UI 컴포넌트 (url-input, video-info, format-selec
   guide-modal.tsx           # 사용법 모달 (탭 전환, 반응형, ESC/오버레이 닫기)
   preview-player.tsx        # YouTube IFrame 미리듣기 플레이어 (선택 트랙 바로 아래 인라인, ESC/✕ 닫기)
   guide/
-    pc-guide.tsx            # PC 사용법 (방법 A: URL 입력 5단계 + 방법 B: 탐색 4단계)
-    mobile-guide.tsx        # 모바일 사용법 (방법 A: URL 입력 5단계 + 방법 B: 탐색 4단계)
-    faq.tsx                 # FAQ 아코디언 (8항목)
+    pc-guide.tsx            # PC 사용법 (방법 A: URL 입력 6단계 + 방법 B: 탐색 5단계, 건너뛸 수 있는 단계에 "선택" 표시)
+    mobile-guide.tsx        # 모바일 사용법 (방법 A: URL 입력 7단계 + 방법 B: 탐색 5단계)
+    faq.tsx                 # FAQ 아코디언 (15항목)
   explore/
     explore-section.tsx     # 탐색 섹션 컨테이너 (검색바 + 카테고리 + 트랙 리스트)
     search-bar.tsx          # 검색 입력 컴포넌트
@@ -118,7 +118,8 @@ scripts/
 - **429 재시도**: yt-dlp의 모든 호출에 exponential backoff 재시도 적용 (최대 2회, 3초→9초 간격, HTTP 429만 대상)
 - **다운로드 메타데이터 전달**: 클라이언트가 info 조회 시 받은 title/channel을 다운로드 요청에 포함하여 서버 측 중복 info 호출 제거. **thumbnail은 전달하지 않는다** (위 SSRF 항목 참고)
 - **미리듣기**: YouTube IFrame 임베드, 자동 재생 없음. 선택한 트랙 바로 아래 인라인(아코디언)으로 표시 — 재클릭/✕/ESC로 닫힘, 다른 트랙 선택 시 이동, 검색/카테고리 전환 시 자동 닫힘
-- **결과 자동 스크롤**: 차트/검색에서 트랙 선택 시 상단 결과 카드로 부드럽게 스크롤(`scrollIntoView`), 미리듣기는 `block: "nearest"`로 필요할 때만 이동
+- **결과 자동 스크롤**: URL 입력·"다시 받기"로 연 곡은 상단 결과 카드로 부드럽게 스크롤(`scrollIntoView`). 차트/검색에서 고른 곡의 인라인 패널과 미리듣기는 `block: "nearest"`로 필요할 때만 이동
+- **사용법 문서는 기능과 함께 고친다**: 인라인 패널·이름 수정·구간 자르기·대기 표시가 들어가는 동안 모달이 "상단 결과 카드로 이동", "10분 영상 15~30초" 같은 구 버전 설명을 그대로 보여주고 있었다. 사용자에게 보이는 흐름을 바꾸면 `components/guide/`와 README "사용법"도 같이 수정한다
 - **실제 진행률 (단계별)**: yt-dlp는 `--newline --progress-template`로 "받은 바이트/전체" 줄을 stdout에 내보내고(파이프여도 나온다, 조각 스트림은 전체가 NA라 추정치로 나눔), ffmpeg는 `-progress pipe:1`의 `out_time_us`를 곡 길이로 나눈다. 둘 다 `runCli`의 `onStdout`으로 읽어 job-registry의 `phase`/`percent`에 담고 `/api/status`(1.5초 폴링)로 보여준다. 화면은 "YouTube에서 준비 중…"(무한) → "YouTube에서 받는 중 N%" → "MP3로 변환 중 N%" → 파일 전송 %. **단계마다 0~100을 따로 쓴다** — 다운로드와 변환을 한 합계로 섞으려면 비중을 지어내야 하고, 이 앱은 진행률을 꾸며내지 않는다(가짜 타이머 미사용). 곡 길이를 모르면 변환도 무한으로 둔다. 실측(서버, 3분 곡): 준비 약 19초(측정 불가 구간 — deno 챌린지 해독), 받기 2초, 변환 32초.
 - **다운로드 완료 알림**: 저장 완료 시 파일명을 담은 성공 배너 노출(수동 ✕ 닫기 + 8초 자동 해제)
 - **모션 접근성**: 스크롤·진행률 애니메이션은 `prefers-reduced-motion` 존중
