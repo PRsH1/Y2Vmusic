@@ -46,6 +46,8 @@ app/
 components/               # UI 컴포넌트 (url-input, video-info, format-selector, download-button, progress-bar)
   download-panel.tsx        # 선택한 트랙 아래 인라인으로 열리는 다운로드 패널
   download-status-bar.tsx   # 화면 하단 고정 진행률·완료 알림
+  download-history.tsx      # 최근 받은 곡 목록 (접힘, 다시 받기, 기록 지우기)
+  metadata-fields.tsx       # 저장 전 아티스트·제목 수정 입력칸
   guide-modal.tsx           # 사용법 모달 (탭 전환, 반응형, ESC/오버레이 닫기)
   preview-player.tsx        # YouTube IFrame 미리듣기 플레이어 (선택 트랙 바로 아래 인라인, ESC/✕ 닫기)
   guide/
@@ -61,6 +63,8 @@ components/               # UI 컴포넌트 (url-input, video-info, format-selec
 lib/
   admission.ts           # 비싼 작업 동시 실행 제한 (download 1 / metadata 2, 대기 초과 시 503 + Retry-After)
   prefs.ts                # 포맷·품질 선택 기억 (localStorage)
+  history.ts              # 다운로드 기록 (localStorage, 최신순 200개)
+  metadata.ts             # 영상 제목에서 아티스트·제목 파싱 (채널은 대개 레이블이라)
   job-registry.ts         # 요청별 다운로드 상태(queued/running) — 대기 표시용
   ytdlp.ts               # yt-dlp CLI 래퍼 (getVideoInfo, downloadAudio, searchYouTube, fetchPlaylistFromYtDlp) + 429 재시도 + 라이브/길이/용량 상한
   youtube-api.ts          # YouTube Data API v3 래퍼 (fetchPlaylistFromApi)
@@ -97,7 +101,10 @@ scripts/
 - **admission 데드락 방지 (`maxHoldMs`)**: 반납이 누락된 경로가 하나라도 있으면 풀이 프로세스 수명 내내 잠겨 이후 모든 요청이 503이 된다. 슬롯은 `maxHoldMs` 초과 시 강제 해제되며 `console.error`로 남는다. 용량을 잠시 초과하는 편이 영구 데드락보다 낫다. **A(동시성 제한)와 B(데드라인)는 반드시 함께 가야 한다** — 데드라인 없는 세마포어는 작업이 한 번 멈추면 그대로 잠긴다.
 - **작업 데드라인 + 프로세스 그룹 종료**: `runCli`에 `timeoutMs`를 두고 초과 시 `CliTimeoutError`. 종료는 `killTree`가 담당하는데, `child.kill()`이 직계 자식만 신호하기 때문이다 — yt-dlp는 JS 챌린지용 deno(115MB)와 HLS 먹싱용 ffmpeg를 띄우므로 고아로 남으면 1GB 박스의 메모리가 사라진다. Linux는 `detached`로 프로세스 그룹 리더를 만들어 그룹째 SIGTERM → 5초 후 SIGKILL, Windows는 `taskkill /T /F`로 분기한다(Windows에 `detached`를 주면 콘솔이 뜨므로 Linux 전용). 서버에서 손자 프로세스 3개가 전부 정리되는 것을 확인했다. 데드라인은 재시도 대상이 아니다 — `withRetry`는 429만 재시도한다.
 - **서브프로세스 우선순위 양보 (WARP 보호)**: `runCli`이 spawn 직후 `os.setPriority(pid, 15)`로 우선순위를 낮춘다. yt-dlp는 로컬 WARP SOCKS5 프록시를 통해 YouTube에 닿는데, `warp-svc`가 같은 1 OCPU를 우리 작업과 나눠 쓰다 굶으면 프록시가 응답을 멈춘다. `nice` 접두사가 아니라 Node 내장 API를 쓴 이유는 Windows 로컬 개발에서도 동작해야 하기 때문이다. yt-dlp가 나중에 띄우는 deno는 자식이라 값을 상속한다(서버에서 둘 다 nice 15 확인). 경합이 없으면 nice 값과 무관하게 코어를 100% 받으므로 평소 속도 저하는 없다.
-- **ID3 태그**: ffmpeg로 MP3/M4A/FLAC 변환 시 제목, 아티스트, 앨범아트 자동 삽입
+- **아티스트는 채널이 아니라 제목에서**: YouTube가 주는 건 업로드 채널이고, 음악 영상의 채널은 대개 레이블이다. 그대로 쓰면 ID3 아티스트가 "HYBE LABELS", "KQ ENTERTAINMENT", "이지금 [IU Official]"이 되고 제목엔 "Official MV"가 붙는다. `lib/metadata.ts`가 "아티스트 - 제목", 아티스트 '제목', `[MV]` 접두 같은 흔한 형태를 읽고 포장 문구를 걷는다. 추측이므로 **저장 전에 고칠 수 있게** 입력칸을 둔다. 파일명은 "아티스트 - 제목". 클라이언트가 값을 안 보낸 요청에도 서버가 같은 파싱을 적용한다.
+- **정사각형 앨범아트**: 썸네일(maxresdefault)은 1280×720인데 음악 앱은 커버를 정사각형으로 보여준다. 짧은 변 기준 중앙 크롭(`COVER_ART_ARGS`, `min(iw,ih)`라 세로형도 됨).
+- **다운로드 기록**: localStorage에 최신순 200개. 차트의 "✓ 받음" 배지와 패널의 "이미 받은 곡" 안내로 실수 중복을 막는다(한 곡에 1~2분). 저장값은 사용자가 편집할 수 있으므로 형식이 틀린 항목은 읽을 때 버린다.
+- **ID3 태그**: ffmpeg로 MP3/M4A/FLAC 변환 시 제목, 아티스트, 앨범아트 자동 삽입 (아티스트·제목은 위 파싱 결과)
 - **하이브리드 차트**: PL 접두사 차트는 YouTube Data API v3, RDCLAK5uy_ 장르 플레이리스트는 yt-dlp로 분기 처리
 - **서버 캐시**: 차트 데이터는 메모리 Map에 2시간 TTL로 캐시, 영상 info는 10분 TTL로 캐시 (DB 미사용)
 - **429 재시도**: yt-dlp의 모든 호출에 exponential backoff 재시도 적용 (최대 2회, 3초→9초 간격, HTTP 429만 대상)
