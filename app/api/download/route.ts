@@ -8,6 +8,7 @@ import {
 } from "@/lib/admission";
 import { convert, type AudioFormat } from "@/lib/ffmpeg";
 import { clearJob, isValidJobId, markJob } from "@/lib/job-registry";
+import { parseTrackMetadata } from "@/lib/metadata";
 import { getCachedInfo, setCachedInfo } from "@/lib/info-cache";
 import { getCliErrorMessage } from "@/lib/process";
 import {
@@ -155,6 +156,16 @@ function toUserMessage(error: unknown): string {
   return `다운로드를 처리하지 못했습니다. ${getCliErrorMessage(error)}`;
 }
 
+/**
+ * Tags for a request that did not send its own. `channel` carries the artist
+ * from here on — the uploader channel is usually a label, so it is parsed out
+ * of the video title the same way the client prefills its fields.
+ */
+function toTags(rawTitle: string, rawChannel: string): DownloadInfo {
+  const parsed = parseTrackMetadata(rawTitle, rawChannel);
+  return { title: parsed.title, channel: parsed.artist };
+}
+
 async function getDownloadInfo(
   url: string,
   videoId: string | null,
@@ -168,10 +179,7 @@ async function getDownloadInfo(
     const cached = getCachedInfo(videoId);
 
     if (cached) {
-      return {
-        title: cached.title,
-        channel: cached.channel,
-      };
+      return toTags(cached.title, cached.channel);
     }
   }
 
@@ -181,10 +189,7 @@ async function getDownloadInfo(
     setCachedInfo(videoId, info);
   }
 
-  return {
-    title: info.title,
-    channel: info.channel,
-  };
+  return toTags(info.title, info.channel);
 }
 
 export async function POST(request: Request) {
@@ -278,7 +283,10 @@ export async function POST(request: Request) {
       format === "opus"
         ? path.extname(responsePath).replace(".", "") || "opus"
         : format;
-    const fileName = `${sanitizeFileName(info.title)}.${responseExt}`;
+    // "Artist - Title" so a folder of downloads sorts and reads like a library.
+    const fileName = `${sanitizeFileName(
+      info.channel ? `${info.channel} - ${info.title}` : info.title,
+    )}.${responseExt}`;
     const stats = statSync(responsePath);
     const nodeStream = createReadStream(responsePath);
     const finishedJobDir = jobDir;

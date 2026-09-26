@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DownloadButton } from "@/components/download-button";
+import { DownloadHistory } from "@/components/download-history";
 import { DownloadPanel } from "@/components/download-panel";
 import { DownloadStatusBar } from "@/components/download-status-bar";
 import { ExploreSection } from "@/components/explore/explore-section";
@@ -11,14 +12,23 @@ import {
   type QualityChoice,
 } from "@/components/format-selector";
 import { GuideModal } from "@/components/guide-modal";
+import { MetadataFields } from "@/components/metadata-fields";
 import { UrlInput } from "@/components/url-input";
 import { VideoInfoCard } from "@/components/video-info";
+import {
+  addHistory,
+  clearHistory,
+  readHistory,
+  type HistoryEntry,
+} from "@/lib/history";
+import { parseTrackMetadata } from "@/lib/metadata";
 import {
   readFormat,
   readQuality,
   writeFormat,
   writeQuality,
 } from "@/lib/prefs";
+import { extractVideoId } from "@/lib/validate";
 import type { VideoInfo } from "@/lib/ytdlp";
 
 type AppStatus = "idle" | "loading-info" | "ready" | "downloading" | "error";
@@ -167,6 +177,11 @@ export default function Home() {
   const [url, setUrl] = useState("");
   const [status, setStatus] = useState<AppStatus>("idle");
   const [error, setError] = useState<string | null>(null);
+  // What goes into the file tags and name. Prefilled from the video title by
+  // lib/metadata.ts, then editable, because the channel is usually the label.
+  const [trackArtist, setTrackArtist] = useState("");
+  const [trackTitle, setTrackTitle] = useState("");
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [info, setInfo] = useState<VideoInfo | null>(null);
   const [format, setFormat] = useState<AudioFormatChoice>("mp3");
   const [quality, setQuality] = useState<QualityChoice>("best");
@@ -187,6 +202,14 @@ export default function Home() {
   const downloadCompleteTimerRef = useRef<number | null>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
   const shouldScrollToResultRef = useRef(false);
+
+  const downloadedIds = useMemo(
+    () => new Set(history.map((entry) => entry.videoId)),
+    [history],
+  );
+  const selectedHistory = selectedVideoId
+    ? history.find((entry) => entry.videoId === selectedVideoId) ?? null
+    : null;
 
   const isBusy = status === "loading-info" || status === "downloading";
   const canDownload =
@@ -261,6 +284,10 @@ export default function Home() {
     setTheme(currentTheme === "dark" ? "dark" : "light");
   }, []);
 
+  useEffect(() => {
+    setHistory(readHistory());
+  }, []);
+
   // Read after mount so the server-rendered markup and the first client render
   // agree; localStorage does not exist during SSR.
   useEffect(() => {
@@ -313,6 +340,9 @@ export default function Home() {
 
       const videoInfo = (await response.json()) as VideoInfo;
       setInfo(videoInfo);
+      const parsed = parseTrackMetadata(videoInfo.title, videoInfo.channel);
+      setTrackArtist(parsed.artist);
+      setTrackTitle(parsed.title);
       setLoadedUrl(targetUrl.trim());
       setStatus("ready");
     } catch (loadError) {
@@ -328,6 +358,20 @@ export default function Home() {
     // pulling the reader away from the list.
     setSelectedVideoId(videoId);
     void loadInfo(trackUrl);
+  }
+
+  function handleHistorySelect(videoId: string) {
+    const historyUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    setUrl(historyUrl);
+    // The track may not be in the list on screen, so it opens in the top card.
+    setSelectedVideoId(null);
+    shouldScrollToResultRef.current = true;
+    void loadInfo(historyUrl);
+  }
+
+  function clearDownloadHistory() {
+    clearHistory();
+    setHistory([]);
   }
 
   function handleUrlSubmit() {
@@ -402,8 +446,8 @@ export default function Home() {
           url,
           format,
           quality,
-          title: info.title,
-          channel: info.channel,
+          title: trackTitle.trim() || info.title,
+          channel: trackArtist.trim() || info.channel,
         }),
       });
 
@@ -455,7 +499,7 @@ export default function Home() {
       });
       const fileName =
         parseFileName(response.headers.get("Content-Disposition")) ??
-        fallbackFileName(info.title, format);
+        fallbackFileName(trackArtist.trim() ? `${trackArtist.trim()} - ${trackTitle.trim() || info.title}` : info.title, format);
       const objectUrl = URL.createObjectURL(blob);
       const link = document.createElement("a");
 
@@ -467,6 +511,19 @@ export default function Home() {
       URL.revokeObjectURL(objectUrl);
 
       setLastDownload({ fileName });
+      const downloadedId = extractVideoId(url);
+
+      if (downloadedId) {
+        setHistory(
+          addHistory({
+            videoId: downloadedId,
+            artist: trackArtist.trim(),
+            title: trackTitle.trim() || info.title,
+            format,
+            at: Date.now(),
+          }),
+        );
+      }
       scheduleLastDownloadClear();
       setProgress(100);
       setProgressIndeterminate(false);
@@ -556,9 +613,23 @@ export default function Home() {
         ) : null}
       </section>
 
+      <DownloadHistory
+        disabled={isBusy}
+        entries={history}
+        onClear={clearDownloadHistory}
+        onSelect={handleHistorySelect}
+      />
+
       {info && !selectedVideoId ? (
         <div className="grid gap-6" ref={resultsRef}>
           <VideoInfoCard info={info} />
+          <MetadataFields
+            artist={trackArtist}
+            disabled={isBusy}
+            onArtistChange={setTrackArtist}
+            onTitleChange={setTrackTitle}
+            title={trackTitle}
+          />
           <FormatSelector
             disabled={isBusy}
             format={format}
@@ -591,6 +662,15 @@ export default function Home() {
         downloadPanel={
           selectedVideoId ? (
             <DownloadPanel
+              alreadyDownloaded={
+                selectedHistory
+                  ? `이미 ${new Date(selectedHistory.at).toLocaleDateString("ko-KR")}에 ${selectedHistory.format.toUpperCase()}로 받은 곡입니다.`
+                  : null
+              }
+              artist={trackArtist}
+              onArtistChange={setTrackArtist}
+              onTitleChange={setTrackTitle}
+              title={trackTitle}
               busy={isBusy}
               error={error}
               format={format}
@@ -605,6 +685,7 @@ export default function Home() {
             />
           ) : null
         }
+        downloadedIds={downloadedIds}
         onTrackSelect={handleTrackSelect}
         selectedVideoId={selectedVideoId}
       />
@@ -616,7 +697,7 @@ export default function Home() {
         onDismiss={clearLastDownload}
         progress={progress}
         savedFileName={lastDownload?.fileName ?? null}
-        trackTitle={info?.title ?? null}
+        trackTitle={info ? (trackArtist ? `${trackArtist} - ${trackTitle}` : trackTitle || info.title) : null}
       />
     </main>
   );

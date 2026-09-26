@@ -4,6 +4,22 @@ import { runCli } from "@/lib/process";
 /** Conversion budget. A 3-hour FLAC on one core is the worst legitimate case. */
 const CONVERT_TIMEOUT_MS = 15 * 60_000;
 
+/**
+ * Maps the thumbnail in as embedded cover art, center-cropped to a square.
+ *
+ * YouTube thumbnails are 16:9 (maxresdefault is 1280x720) while music players
+ * show cover art square, so an uncropped frame gets letterboxed or trimmed at
+ * the edges there. Cropping to the shorter side keeps the middle, which is
+ * where the artist usually is; min() also covers portrait thumbnails.
+ */
+const COVER_ART_ARGS = [
+  "-map", "0:a",
+  "-map", "1:v",
+  "-filter:v", "crop='min(iw,ih)':'min(iw,ih)'",
+  "-c:v", "mjpeg",
+  "-disposition:v:0", "attached_pic",
+];
+
 export type AudioFormat = "mp3" | "m4a" | "opus" | "flac";
 
 export type ConvertOptions = {
@@ -45,12 +61,7 @@ export async function convert(
     if (options.metadata?.thumbnailPath) {
       // Re-enable video for the cover image, map audio from input 0, video from input 1
       args.splice(args.indexOf("-vn"), 1);
-      args.push(
-        "-map", "0:a",
-        "-map", "1:v",
-        "-c:v", "mjpeg",
-        "-disposition:v:0", "attached_pic",
-      );
+      args.push(...COVER_ART_ARGS);
     }
 
     // Metadata tags
@@ -70,12 +81,7 @@ export async function convert(
     // Embed album art for M4A
     if (options.metadata?.thumbnailPath) {
       args.splice(args.indexOf("-vn"), 1);
-      args.push(
-        "-map", "0:a",
-        "-map", "1:v",
-        "-c:v", "mjpeg",
-        "-disposition:v:0", "attached_pic",
-      );
+      args.push(...COVER_ART_ARGS);
     }
 
     if (options.metadata?.title) {
@@ -94,12 +100,7 @@ export async function convert(
     // FLAC supports embedded pictures via -metadata_block_picture but simpler to use mapped cover
     if (options.metadata?.thumbnailPath) {
       args.splice(args.indexOf("-vn"), 1);
-      args.push(
-        "-map", "0:a",
-        "-map", "1:v",
-        "-c:v", "mjpeg",
-        "-disposition:v:0", "attached_pic",
-      );
+      args.push(...COVER_ART_ARGS);
     }
 
     if (options.metadata?.title) {

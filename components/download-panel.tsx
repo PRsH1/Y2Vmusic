@@ -8,11 +8,18 @@ import {
   type AudioFormatChoice,
   type QualityChoice,
 } from "@/components/format-selector";
+import { MetadataFields } from "@/components/metadata-fields";
 import { formatSource } from "@/components/video-info";
 import type { VideoInfo } from "@/lib/ytdlp";
 
 type DownloadPanelProps = {
+  artist: string;
+  /** Set when this track was downloaded before, so a repeat is deliberate. */
+  alreadyDownloaded?: string | null;
   busy: boolean;
+  onArtistChange: (value: string) => void;
+  onTitleChange: (value: string) => void;
+  title: string;
   error: string | null;
   format: AudioFormatChoice;
   info: VideoInfo | null;
@@ -34,7 +41,12 @@ type DownloadPanelProps = {
  * happened also matches how preview already behaves.
  */
 export function DownloadPanel({
+  artist,
+  alreadyDownloaded = null,
   busy,
+  onArtistChange,
+  onTitleChange,
+  title,
   error,
   format,
   info,
@@ -84,7 +96,19 @@ export function DownloadPanel({
 
       {info && !loading ? (
         <>
+          {alreadyDownloaded ? (
+            <p className="rounded-md border border-[color:var(--warning)] bg-[color:var(--warning-soft)] px-3 py-2 text-xs text-[color:var(--text)]">
+              {alreadyDownloaded}
+            </p>
+          ) : null}
           <p className="text-xs text-[color:var(--muted)]">{formatSource(info)}</p>
+          <MetadataFields
+            artist={artist}
+            disabled={busy}
+            onArtistChange={onArtistChange}
+            onTitleChange={onTitleChange}
+            title={title}
+          />
           <FormatSelector
             disabled={busy}
             format={format}

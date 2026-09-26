@@ -2,6 +2,8 @@
 
 type TrackItemProps = {
   channel: string;
+  /** Already downloaded in this browser — flags an accidental repeat. */
+  downloaded?: boolean;
   duration: string | null;
   index: number;
   isPreviewing: boolean;
@@ -15,6 +17,7 @@ type TrackItemProps = {
 
 export function TrackItem({
   channel,
+  downloaded = false,
   duration,
   index,
   isPreviewing,
@@ -63,6 +66,9 @@ export function TrackItem({
           {title}
         </span>
         <span className="truncate text-xs text-[color:var(--muted)]">
+          {downloaded ? (
+            <span className="mr-1 font-bold text-[color:var(--accent)]">✓ 받음 ·</span>
+          ) : null}
           {channel}
         </span>
       </span>

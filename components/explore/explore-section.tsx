@@ -13,6 +13,8 @@ type ExploreSectionProps = {
   /** Rendered inline under the selected track, in the preview slot. */
   downloadPanel?: ReactNode;
   selectedVideoId?: string | null;
+  /** Video ids this browser has already downloaded. */
+  downloadedIds?: ReadonlySet<string>;
 };
 
 type ExploreMode = "chart" | "search";
@@ -84,6 +86,7 @@ export function ExploreSection({
   onTrackSelect,
   downloadPanel,
   selectedVideoId,
+  downloadedIds,
 }: ExploreSectionProps) {
   const [activePlaylist, setActivePlaylist] = useState(PLAYLISTS[0]?.id ?? "");
   const [tracks, setTracks] = useState<ChartTrack[]>([]);
@@ -243,6 +246,7 @@ export function ExploreSection({
           ) : null}
           <TrackList
             downloadPanel={downloadPanel}
+            downloadedIds={downloadedIds}
             onTrackSelect={(videoId) => {
               if (!disabled) {
                 onTrackSelect(videoId);

@@ -12,6 +12,7 @@ type TrackListProps = {
   /** Rendered under the selected track so the action stays where it began. */
   downloadPanel?: ReactNode;
   selectedVideoId?: string | null;
+  downloadedIds?: ReadonlySet<string>;
 };
 
 const PAGE_SIZE = 20;
@@ -22,6 +23,7 @@ export function TrackList({
   tracks,
   downloadPanel,
   selectedVideoId,
+  downloadedIds,
 }: TrackListProps) {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
@@ -82,6 +84,7 @@ export function TrackList({
             <TrackItem
               channel={track.channel}
               duration={track.duration}
+              downloaded={downloadedIds?.has(track.videoId) ?? false}
               index={index}
               isPreviewing={index === activeIndex}
               onSelect={onTrackSelect}
